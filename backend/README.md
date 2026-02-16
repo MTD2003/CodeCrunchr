@@ -48,6 +48,20 @@ To run the test suite, **ensure that the development dependencies are installed*
 # With uv:
 uv run -m pytest
 
-# With pip:
+# or:
 python -m pytest
+```
+
+#### Migrations
+
+The backend uses sqlqalchemy as an ORM and alembic to handle database migrations. The API will automatically apply any pending migrations on startup, to create a new migration, run:
+```sh
+# with uv:
+uv run -m alembic revision -m "<message>" --autogenerate
+
+# or:
+python -m alembic revision -m "<message>" --autogenerate
+
+# or:
+alembic revision -m "<message>" --autogenerate
 ```
