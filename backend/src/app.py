@@ -3,9 +3,19 @@ from fastapi import FastAPI
 from dotenv import load_dotenv
 
 from .db import run_migrations, start_database_engine, shutdown_database_engine
+from .jobs.scheduler import init_job_scheduler, kill_job_scheduler, JobScheduler
 from .utils.env import get_required_env
 
 from .routers import ping_router
+
+
+def add_presceduled_jobs(js: JobScheduler) -> None:
+    """
+    Handles setting up jobs which are pre-scheduled or reoccuring.
+    """
+    js.add_job(
+        lambda: print("This runs every 5s!"), "interval", seconds=5, id="ping_job"
+    )
 
 
 @asynccontextmanager
@@ -26,10 +36,16 @@ async def lifespan(app: FastAPI):
     # Run any pending migrations
     await run_migrations()
 
+    # Start the job scheduler and add any prescheduled jobs to it
+    job_scheduler = init_job_scheduler()
+    add_presceduled_jobs(js=job_scheduler)
+
     # yield -> the api is ready to start!
     yield
 
     # GRACEFUL SHUTDOWN     -------------------------
+    kill_job_scheduler(wait=False)
+
     await shutdown_database_engine()
 
 
