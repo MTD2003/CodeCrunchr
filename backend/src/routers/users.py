@@ -6,6 +6,7 @@ from urllib.parse import parse_qs
 from uuid import UUID
 from datetime import datetime
 import jwt as pyjwt
+from cryptography.fernet import Fernet
 
 from ..db.models import User, OAuth2Credentials
 from ..db import get_session as get_db_session
@@ -63,6 +64,13 @@ async def post_user_login(
     refresh_token = parsed_text_resp["refresh_token"][0]
     expires_at = datetime.fromisoformat(parsed_text_resp["expires_at"][0]).replace(tzinfo=None)
 
+    # We'll do a little bit of encryption for the tokens just so we're not storing them in plaintext.
+    token_encryption_key = get_required_env("ENCRYPT_SECRET")
+    f = Fernet(token_encryption_key)
+
+    enc_access_token = f.encrypt(access_token.encode('utf-8')).decode('utf-8')
+    enc_refresh_token = f.encrypt(refresh_token.encode('utf-8')).decode('utf8')
+
     # Now we need to check and see if there's already a user that matches `user_uuid` in our db.
     async with get_db_session() as session:
         matched_users = await session.scalar(select(User).where(User.id == user_uuid))
@@ -76,8 +84,8 @@ async def post_user_login(
                 .values(
                     user_id = user_uuid,
                     provider = "wakatime",
-                    access_token=access_token,
-                    refresh_token=refresh_token,
+                    access_token=enc_access_token,
+                    refresh_token=enc_refresh_token,
                     expires_at=expires_at,
                     updated_at=datetime.now().replace(tzinfo=None)
                 ))

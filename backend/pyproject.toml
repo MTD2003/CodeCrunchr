@@ -9,6 +9,7 @@ dependencies = [
     "alembic>=1.18.4",
     "apscheduler>=3.11.2",
     "asyncpg>=0.31.0",
+    "cryptography>=46.0.5",
     "fastapi>=0.129.0",
     "gunicorn>=25.0.3",
     "pyjwt>=2.11.0",
