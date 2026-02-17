@@ -10,6 +10,8 @@ from sqlalchemy.ext.asyncio import (
     AsyncEngine,
 )
 
+from . import models
+
 #
 #       DATABASE ENGINE SINGLETON WRAPPER THINGY
 #
@@ -204,4 +206,5 @@ __all__ = [
     "get_connection",
     "get_session",
     "run_migrations",
+    "models"
 ]
