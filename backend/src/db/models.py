@@ -70,7 +70,10 @@ class OAuth2Credentials(CodeCrunchrBase):
     expires_at : Mapped[datetime] = mapped_column(DateTime)
 
     # When this record was created/updated (in the event of an access_token expiring)
-    updated_at : Mapped[datetime] = mapped_column(DateTime, server_default=db_funcs.now())
+    updated_at : Mapped[datetime] = mapped_column(
+        DateTime, 
+        server_default=db_funcs.now(), 
+    )
 
     # Relationships
     user = relationship("User", back_populates="credentials")

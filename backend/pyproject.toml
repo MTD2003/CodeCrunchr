@@ -5,11 +5,13 @@ description = "The backend for the CodeCrunchr app!"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
+    "aiohttp>=3.13.3",
     "alembic>=1.18.4",
     "apscheduler>=3.11.2",
     "asyncpg>=0.31.0",
     "fastapi>=0.129.0",
     "gunicorn>=25.0.3",
+    "pyjwt>=2.11.0",
     "python-dotenv>=1.2.1",
     "sqlalchemy>=2.0.46",
     "uvicorn>=0.40.0",
