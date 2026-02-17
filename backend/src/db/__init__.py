@@ -206,5 +206,5 @@ __all__ = [
     "get_connection",
     "get_session",
     "run_migrations",
-    "models"
+    "models",
 ]

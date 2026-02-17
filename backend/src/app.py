@@ -8,6 +8,7 @@ from .utils.env import get_required_env
 
 from .routers import ping_router, user_router
 
+
 def add_presceduled_jobs(js: JobScheduler) -> None:
     """
     Handles setting up jobs which are pre-scheduled or reoccuring.
