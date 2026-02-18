@@ -1,21 +1,21 @@
 from fastapi.routing import APIRouter
-from fastapi import HTTPException, Query
+from fastapi import Depends, HTTPException, Query
 from typing import Annotated
-import aiohttp
-from urllib.parse import parse_qs
 from uuid import UUID
-from datetime import datetime
 import jwt as pyjwt
-from cryptography.fernet import Fernet
 
-from ..db.models import User, OAuth2Credentials
-from ..db import get_session as get_db_session
 from sqlalchemy import select
-from sqlalchemy.dialects.postgresql import insert
+
+from ..db.models import User
+from ..db.helpers import update_oauth_tokens
+from ..db import get_session as get_db_session
 
 from ..models import users as user_models
 
 from ..utils.env import get_required_env
+
+from ..dependencies.auth import get_current_user_id
+from ..wakatime.auth import get_access_tokens
 
 router = APIRouter()
 
@@ -38,79 +38,32 @@ async def post_user_login(
     if not code:
         raise HTTPException(status_code=400, detail="code needed.")
 
-    # Build the payload that we need to send to wakatime to get
-    # the access/refresh tokens
-    token_req_payload = {
-        "client_id": get_required_env("WAKA_APP_ID"),
-        "client_secret": get_required_env("WAKA_APP_SECRET"),
-        "redirect_uri": get_required_env("WAKA_REDIRECT_URI"),
-        "grant_type": "authorization_code",
-        "code": code,
-    }
+    wrapped_token_resp = await get_access_tokens(oauth_code=code)
 
-    # Send that payload and get a response
-    async with aiohttp.ClientSession() as session:
-        async with session.post(
-            "https://wakatime.com/oauth/token", data=token_req_payload
-        ) as resp:
-            # If we get something greater than a redirect or an okay, then we got an error
-            # let the user know, because I don't know what would happen here if it was not okay
-            if resp.status >= 400:
-                raise HTTPException(status_code=500, detail="Failed to get tokens")
+    if wrapped_token_resp.status_code >= 300:
+        raise HTTPException(status_code=400, detail="Failed to get tokens")
 
-            # We get the raw text response here because it returns a horrible url-encoded form data
-            # string that we need to parse :/
-            raw_text_resp = await resp.text()
-
-    # Using parse_qs, we get a dict where the values are arrays of the values we actually want.
-    parsed_text_resp = parse_qs(raw_text_resp)
-
-    # This is all the data we actually want
-    user_uuid = UUID(parsed_text_resp["uid"][0])
-    access_token = parsed_text_resp["access_token"][0]
-    refresh_token = parsed_text_resp["refresh_token"][0]
-    expires_at = datetime.fromisoformat(parsed_text_resp["expires_at"][0]).replace(
-        tzinfo=None
-    )
-
-    # We'll do a little bit of encryption for the tokens just so we're not storing them in plaintext.
-    token_encryption_key = get_required_env("ENCRYPT_SECRET")
-    f = Fernet(token_encryption_key)
-
-    enc_access_token = f.encrypt(access_token.encode("utf-8")).decode("utf-8")
-    enc_refresh_token = f.encrypt(refresh_token.encode("utf-8")).decode("utf8")
+    token_resp = wrapped_token_resp.unwrap()
 
     # Now we need to check and see if there's already a user that matches `user_uuid` in our db.
     async with get_db_session() as session:
-        matched_users = await session.scalar(select(User).where(User.id == user_uuid))
+        matched_users = await session.scalar(
+            select(User).where(User.id == token_resp["user_id"])
+        )
 
         # If we cannot find any users that match the user_uuid, then we must have a new user!
         if matched_users is None:
-            session.add(User(id=user_uuid))
+            session.add(User(id=token_resp["user_id"]))
 
-        # Prepare a statement to insert the new values into the oauth table
-        stmt = insert(OAuth2Credentials).values(
-            user_id=user_uuid,
-            provider="wakatime",
-            access_token=enc_access_token,
-            refresh_token=enc_refresh_token,
-            expires_at=expires_at,
-            updated_at=datetime.now().replace(tzinfo=None),
-        )
-
-        # When we execute this, we're running an `ON CONFLICT DO UPDATE` thing
-        # which will update the access_token/refresh_token/expires_at if the user
-        # already had a record in the table for the provider (wakatime)
-        await session.execute(
-            stmt.on_conflict_do_update(
-                constraint="pk_provider_per_user",
-                set_={
-                    "access_token": stmt.excluded.access_token,
-                    "refresh_token": stmt.excluded.refresh_token,
-                    "expires_at": stmt.excluded.expires_at,
-                    "updated_at": stmt.excluded.updated_at,
-                },
-            )
+        # Update the user's oauth tokens with the new ones we just got
+        # (This function will insert them if they don't already exist)
+        await update_oauth_tokens(
+            session=session,
+            user_id=token_resp["user_id"],
+            access_token=token_resp["access_token"],
+            refresh_token=token_resp["refresh_token"],
+            expires_at=token_resp["expires_at"],
+            skip_encryption=False,
         )
 
         # We've made sure our user exists, and our credentials are updated
@@ -120,7 +73,7 @@ async def post_user_login(
     # Now it's JWT time...
 
     # This is the payload, it just holds data that tells us who our user is.
-    token_payload = {"user_id": str(user_uuid)}
+    token_payload = {"user_id": str(token_resp["user_id"])}
 
     # We then use the secret key defined in env to encode the payload and attach
     # a signature to it that we validate in our custom authn middleware.
@@ -135,14 +88,17 @@ async def post_user_login(
     return user_models.LoginResponse(token=token)
 
 
-@router.post("/logout", tags=["auth"])
-async def post_user_logout():
-    pass
-
-
 @router.post("/revoke_token", tags=["auth"])
 async def post_user_revoke_token():
     pass
+
+
+@router.get("/user", tags=["user"], name="Get current user profile")
+async def get_current_user_profile(
+    user_id: Annotated[UUID, Depends(get_current_user_id)],
+):
+    # HACK: Just to prove that auth is working to some capacity
+    return f"{user_id=}"
 
 
 @router.get("/user/{user_id}", tags=["users"])

@@ -39,7 +39,7 @@ class UserPreferenceOverride(CodeCrunchrBase):
 
     __tablename__ = "codecrunchr_preferences"
 
-    user_id: Mapped[str] = mapped_column(ForeignKey("codecrunchr_users.id"))
+    user_id: Mapped[UUID] = mapped_column(ForeignKey("codecrunchr_users.id"))
 
     # Preference identifier
     slug: Mapped[str]
@@ -68,7 +68,7 @@ class OAuth2Credentials(CodeCrunchrBase):
 
     __tablename__ = "codecrunchr_oauth"
 
-    user_id = mapped_column(ForeignKey("codecrunchr_users.id"))
+    user_id: Mapped[UUID] = mapped_column(ForeignKey("codecrunchr_users.id"))
 
     # The OAuth2 provider we got the credentials from
     provider: Mapped[str] = mapped_column(nullable=False)

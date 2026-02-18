@@ -2,11 +2,13 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from dotenv import load_dotenv
 
-from .db import run_migrations, start_database_engine, shutdown_database_engine
-from .jobs.scheduler import init_job_scheduler, kill_job_scheduler, JobScheduler
-from .utils.env import get_required_env
+load_dotenv()
 
-from .routers import ping_router, user_router
+from .db import run_migrations, start_database_engine, shutdown_database_engine  # noqa: E402
+from .jobs.scheduler import init_job_scheduler, kill_job_scheduler, JobScheduler  # noqa: E402
+from .utils.env import get_required_env  # noqa: E402
+
+from .routers import ping_router, user_router  # noqa: E402
 
 
 def add_presceduled_jobs(js: JobScheduler) -> None:
@@ -25,7 +27,6 @@ async def lifespan(app: FastAPI):
     of resources depended on by the api.
     """
     # Load any environment variable files that may be present
-    load_dotenv()
 
     # GRACEFUL STARTUP      -------------------------
 
