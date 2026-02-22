@@ -9,8 +9,11 @@ from sqlalchemy.ext.asyncio import (
     AsyncConnection,
     AsyncEngine,
 )
+from logging import getLogger
 
 from . import models
+
+LOGGER = getLogger(__name__)
 
 #
 #       DATABASE ENGINE SINGLETON WRAPPER THINGY
@@ -124,6 +127,8 @@ def start_database_engine(*, db_url: str) -> None:
     Makes the database functional by creating the singleton wrapper.
     """
 
+    LOGGER.info("Initializing database...")
+
     if hasattr(DatabaseSingleton, "instance"):
         raise ValueError(
             "Cannot init database singleton: it's already initialized, what???"
@@ -133,6 +138,8 @@ def start_database_engine(*, db_url: str) -> None:
 
     setattr(DatabaseSingleton, "instance", new_singleton)
 
+    LOGGER.info("Database initialized!")
+
 
 async def shutdown_database_engine() -> None:
     """
@@ -141,6 +148,7 @@ async def shutdown_database_engine() -> None:
     This should only be called at the end of the lifespan
     function doohickey for the FastAPI app.
     """
+    LOGGER.info("Shutting down database...")
     await get_database_singleton().die()
 
 
@@ -181,6 +189,8 @@ async def run_migrations() -> None:
     up-to-date revision.
     """
 
+    LOGGER.info("Running pending migrations...")
+
     # Creates an instance of an alembic config
     cfg = alembic.config.Config("alembic.ini")
 
@@ -196,6 +206,8 @@ async def run_migrations() -> None:
     # run the command wrapper with an established connection
     async with get_connection() as connection:
         await connection.run_sync(migration_runner, cfg)
+
+    LOGGER.info("Any pending migrations have been applied!")
 
 
 __all__ = [

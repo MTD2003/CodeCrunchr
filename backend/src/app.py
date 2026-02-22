@@ -1,6 +1,8 @@
 from contextlib import asynccontextmanager
+import sys
 from fastapi import FastAPI
 from dotenv import load_dotenv
+import logging
 
 load_dotenv()
 
@@ -10,14 +12,20 @@ from .utils.env import get_required_env  # noqa: E402
 
 from .routers import ping_router, user_router  # noqa: E402
 
+LOGGER = logging.getLogger(__name__)
+SETUP_LOGGING = lambda: logging.basicConfig(  # noqa: E731
+    level=logging.DEBUG,
+    stream=sys.stdout,
+    format="[%(asctime)s] %(levelname)s [%(name)s.%(funcName)s] %(message)s",
+    force=True
+)
+SETUP_LOGGING()
 
 def add_presceduled_jobs(js: JobScheduler) -> None:
     """
     Handles setting up jobs which are pre-scheduled or reoccuring.
     """
-    js.add_job(
-        lambda: print("This runs every 5s!"), "interval", seconds=5, id="ping_job"
-    )
+    pass
 
 
 @asynccontextmanager
@@ -41,13 +49,19 @@ async def lifespan(app: FastAPI):
     job_scheduler = init_job_scheduler()
     add_presceduled_jobs(js=job_scheduler)
 
+    LOGGER.info("The app is ready to start!")
+
     # yield -> the api is ready to start!
     yield
+
+    LOGGER.info("Attempting to shutdown the app gracefully...")
 
     # GRACEFUL SHUTDOWN     -------------------------
     kill_job_scheduler(wait=False)
 
     await shutdown_database_engine()
+
+    LOGGER.info("Bye!")
 
 
 app = FastAPI(lifespan=lifespan)

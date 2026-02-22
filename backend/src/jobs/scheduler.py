@@ -1,5 +1,7 @@
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from logging import getLogger
 
+LOGGER = getLogger(__name__)
 
 class JobScheduler(AsyncIOScheduler):
     """
@@ -26,6 +28,8 @@ def init_job_scheduler() -> "JobScheduler":
     # If not, then create a new instance and attach it to the class object
     js = JobScheduler()
     setattr(JobScheduler, "instance", js)
+
+    LOGGER.info("Starting job scheduler...")
 
     # Start the job scheduler.
     js.start()

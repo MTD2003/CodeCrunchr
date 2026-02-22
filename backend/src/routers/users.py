@@ -1,10 +1,11 @@
 from datetime import datetime, timedelta
-
 from fastapi.routing import APIRouter
-from fastapi import Depends, HTTPException, Query
+from fastapi import HTTPException, Query
+from fastapi.responses import Response
 from typing import Annotated
 from uuid import UUID
 import jwt as pyjwt
+from logging import getLogger
 
 from sqlalchemy import select
 
@@ -16,14 +17,13 @@ from ..models import users as user_models
 
 from ..utils.env import get_required_env
 
-from ..dependencies.auth import get_current_user_wakatime_tokens
-from ..wakatime import WakatimeTokens
+from ..dependencies.auth import clear_caches_for_token, TokenDependencyType, UserIDDependencyType, AuthHeaderDependencyType
 from ..wakatime.auth import get_access_tokens
-from ..wakatime.user import get_current_user
 
 router = APIRouter()
 
-RECACHE_OLD_WAKA_PROFILE_AFTER = timedelta(minutes=10)
+LOGGER = getLogger(__name__)
+RECACHE_OLD_WAKA_PROFILE_AFTER = timedelta(days=1)
 
 @router.post("/login", tags=["auth"])
 async def post_user_login(
@@ -43,10 +43,14 @@ async def post_user_login(
     if not code:
         raise HTTPException(status_code=400, detail="code needed.")
 
+    LOGGER.debug(f"Getting access tokens for code: {code[:8]}...")
+
     wrapped_token_resp = await get_access_tokens(oauth_code=code)
 
     if wrapped_token_resp.status_code >= 300:
         raise HTTPException(status_code=400, detail="Failed to get tokens")
+
+    LOGGER.debug(f"Got access token and refresh token for code: {code[:8]}...")
 
     token_resp = wrapped_token_resp.unwrap()
 
@@ -58,6 +62,9 @@ async def post_user_login(
 
         # If we cannot find any users that match the user_uuid, then we must have a new user!
         if matched_users is None:
+            
+            LOGGER.info(f"New user created with id: {token_resp['user_id']}")
+
             session.add(User(id=token_resp["user_id"]))
 
         # Update the user's oauth tokens with the new ones we just got
@@ -70,6 +77,8 @@ async def post_user_login(
             expires_at=token_resp["expires_at"],
             skip_encryption=False,
         )
+
+        LOGGER.debug(f"Got stale or non-existent tokens for user with id {token_resp['user_id']}, refreshed them!")
 
         # We've made sure our user exists, and our credentials are updated
         # Lets get out of john and commit ts twin
@@ -89,6 +98,8 @@ async def post_user_login(
         payload=token_payload, key=get_required_env("JWT_SECRET"), algorithm="HS256"
     )
 
+    LOGGER.debug(f"Successful login, created a new JWT for user with id: {token_payload['user_id']}")
+
     # Return the auth token that the user can now use to login to the stuff they need to
     return user_models.LoginResponse(token=token)
 
@@ -100,7 +111,7 @@ async def post_user_revoke_token():
 
 @router.get("/user", tags=["users"], name="Get current user profile")
 async def get_current_user_profile(
-    tokens: Annotated[WakatimeTokens, Depends(get_current_user_wakatime_tokens)],
+    tokens: TokenDependencyType,
 ) -> user_models.UserProfileResponse:
     """
     Returns the current user's profile.
@@ -108,22 +119,24 @@ async def get_current_user_profile(
     
     # First we need to check and see whether or not the user has already been cached
     stmt = select(WakatimeUserProfile).where(WakatimeUserProfile.user_id == tokens['user_id'])
+
+    LOGGER.debug(f"Getting user profile data for user id: {tokens['user_id']}")
     
     async with get_db_session() as session:
         # `resp` now holds the currently cached data (if any) 
         resp = await session.scalar(stmt)
 
         # If there is no cached data, or the cached data is old, then recache the data
-        if resp is None or resp.last_cached_at + RECACHE_OLD_WAKA_PROFILE_AFTER <= datetime.now():
+        if resp is None or resp.last_cached_at + RECACHE_OLD_WAKA_PROFILE_AFTER <= datetime.now(tz=None):
+
+            LOGGER.debug(f"User profile ({tokens['user_id']}) is stale or has never been pulled")
             
             # This function returns the newly created instance of `WakatimeUserProfile`
             resp = await recache_wakatime_profile(session, tokens, "current")
             
-            # Save after the recache 
-            await session.commit()
-
-        # At this point, we know we have an up-to-date WakatimeUserProfile instance.
-        return user_models.UserProfileResponse(
+        # Build a response model, we need to do this here before we commit otherwise we lose
+        # access to the data
+        response_model = user_models.UserProfileResponse(
             user_id = str(resp.user_id),
             wakatime = user_models.WakatimeProfile(
                 user_id=str(resp.user_id),
@@ -136,10 +149,16 @@ async def get_current_user_profile(
             )
         )
 
+        # Save after the recache 
+        await session.commit()
+
+    # Return the response model we built earlier
+    return response_model
+
 
 @router.get("/user/{user_id}", tags=["users"])
 async def get_user_user(
-    tokens: Annotated[WakatimeTokens, Depends(get_current_user_wakatime_tokens)],
+    tokens: TokenDependencyType,
     user_id : UUID
 ) -> user_models.UserProfileResponse:
     """
@@ -150,6 +169,8 @@ async def get_user_user(
     """
     codecrunchr_user_stmt = select(User).where(User.id == user_id)
     waka_profile_stmt = select(WakatimeUserProfile).where(WakatimeUserProfile.user_id == user_id)
+
+    LOGGER.debug(f"Getting user profile data for user id: {tokens['user_id']}")
 
     async with get_db_session() as session:
         
@@ -168,16 +189,16 @@ async def get_user_user(
         waka_profile = await session.scalar(waka_profile_stmt)
 
         # If there is no cached data, or the cached data is old, then recache the data
-        if waka_profile is None or waka_profile.last_cached_at + RECACHE_OLD_WAKA_PROFILE_AFTER <= datetime.now():
+        if waka_profile is None or waka_profile.last_cached_at + RECACHE_OLD_WAKA_PROFILE_AFTER <= datetime.now(tz=None):
+
+            LOGGER.debug(f"User profile ({tokens['user_id']}) is stale or has never been pulled")
             
             # This function returns the newly created instance of `WakatimeUserProfile`
             waka_profile = await recache_wakatime_profile(session, tokens, "current")
             
-            # Save after the recache 
-            await session.commit()
-
-        # At this point, we know we have an up-to-date WakatimeUserProfile instance.
-        return user_models.UserProfileResponse(
+        # Build a response model, we need to do this here before we commit otherwise we lose
+        # access to the data
+        response_model = user_models.UserProfileResponse(
             user_id = str(waka_profile.user_id),
             wakatime = user_models.WakatimeProfile(
                 user_id=str(waka_profile.user_id),
@@ -190,10 +211,49 @@ async def get_user_user(
             )
         )
 
+        # Save after the recache 
+        await session.commit()
+
+    # Return the response model we built earlier
+    return response_model
+
 
 @router.delete("/user", tags=["users"])
-async def delete_user_user():
-    pass
+async def delete_user_user(
+    auth_header: AuthHeaderDependencyType,
+    user_id: UserIDDependencyType
+):
+    """
+    Deletes the current user and any assoc. data from CodeCrunchr.
+    """
 
+    # Clear caches
+    clear_caches_for_token(auth_header.credentials)
+
+    LOGGER.debug(f"Auth caches were cleared for user id: {user_id} (account deletion)")
+
+    # Delete user in db, cascade all other tables
+    async with get_db_session() as session:
+        user = await session.get(User, user_id)
+
+        # Sanity check, this should never happen, if it does something SERIOUSLY went wrong
+        if not user:
+            raise HTTPException(
+                status_code=404,
+                detail="Cannot delete user, user doesn't exist???"
+            )
+        
+        # Delete the user
+        # Provided I set the database up correctly, this *should* also trigger 
+        # an ON CASCADE clause, deleting the rest of the data associated with this user.
+        await session.delete(user)
+
+        # Commit so that the user *actually* gets deleted.
+        await session.commit()
+
+    LOGGER.info(f"User with id {user_id} has been deleted!")
+
+    # return le epic response
+    return Response(status_code=200, content="User deleted successfully!")
 
 __all__ = ["router"]

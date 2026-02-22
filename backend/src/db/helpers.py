@@ -1,9 +1,10 @@
 from datetime import datetime, timedelta
 from typing import Literal, Union
 from uuid import UUID
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.dialects.postgresql import insert
+from logging import getLogger
 
 from ..wakatime import WakatimeTokens
 from ..wakatime import user as waka_user_funcs
@@ -11,7 +12,7 @@ from ..utils import tokens as tokens_utils
 from ..db.models import OAuth2Credentials, WakatimeUserProfile
 
 OAUTH_EARLY_EXPIRY_DELTA = timedelta(minutes=5)
-
+LOGGER = getLogger(__name__)
 
 async def update_oauth_tokens(
     session: AsyncSession,
@@ -26,6 +27,8 @@ async def update_oauth_tokens(
     if not skip_encryption:
         access_token = tokens_utils.encrypt(access_token)
         refresh_token = tokens_utils.encrypt(refresh_token)
+
+    LOGGER.debug(f"Pushing new access/refresh credentials to db for user: {user_id}")
 
     # Prepare a statement to insert the new values into the oauth table
     stmt = insert(OAuth2Credentials).values(
@@ -56,7 +59,11 @@ async def update_oauth_tokens(
 def is_oauth_expired(
     creds: OAuth2Credentials, *, pos_offset: timedelta = OAUTH_EARLY_EXPIRY_DELTA
 ) -> bool:
-    return creds.expires_at < (datetime.now() + pos_offset)
+    is_expired = creds.expires_at < (datetime.now() + pos_offset)
+
+    LOGGER.debug(f"Check for expired credentials for user id: {creds.user_id}, {is_expired=}")
+
+    return is_expired
 
 
 async def recache_wakatime_profile(
@@ -83,36 +90,44 @@ async def recache_wakatime_profile(
     if user_resp is None:
         raise ValueError("Failed to recache wakatime profile: No user found on Wakatime matching the provided user_id")
 
-    # Build the new user profile object from the response we got from wakatime
-    new_profile = WakatimeUserProfile(
-        user_id = user_resp.id,
-        display_name = user_resp.display_name,
-        full_name = user_resp.full_name,
-        username = user_resp.username,
-        photo_url = user_resp.photo,
-        is_photo_public = user_resp.is_photo_public,
-        email = user_resp.email,
-        timezone = user_resp.timezone,
-        last_cached_at = datetime.now(tz=None)
-    )
-
     # Get the current user's token, because if `user_id` provided was "current",
     # then the validation for the following function fails because "current" isn't
     # a UUID... bruh.
     current_users_token = tokens["user_id"]
 
-    # Try to get the old profile
-    old_profile = await session.get(
-        WakatimeUserProfile, 
-        current_users_token if user_id == "current" else current_users_token
+    # This is the base insert statement...
+    insert_statement = insert(WakatimeUserProfile).values(
+        dict(
+            user_id = user_resp.id,
+            display_name = user_resp.display_name,
+            full_name = user_resp.full_name,
+            username = user_resp.username,
+            photo_url = user_resp.photo,
+            is_photo_public = user_resp.is_photo_public,
+            email = user_resp.email,
+            timezone = user_resp.timezone,
+            last_cached_at = datetime.now(tz=None)
+        )
     )
 
-    # If there is an old profile that we no longer need, then we delete it
-    if old_profile:
-        await session.delete(old_profile)
+    # ... To which we add on an on_conflict_do_update clause to handle updating the
+    # row in the case where the user *has* had their data pulled previously.
+    # They are seperated because we need `insert_statement.excluded` to find what columns
+    # in the record need updating.
+    insert_statement_with_conflict_clause = (
+        insert_statement
+            .on_conflict_do_update(set_=insert_statement.excluded, index_elements=[WakatimeUserProfile.user_id])
+            .returning(WakatimeUserProfile)
+        )
 
-    # Add the new profile to be committed
-    session.add(new_profile)
+    # Run that statement we just built.
+    new_profile = await session.scalar(insert_statement_with_conflict_clause)
+
+    # This shouldn't happen
+    if new_profile is None:
+        raise Exception("Something went wrong")
+
+    LOGGER.debug(f"User with id: {user_id} ({user_resp.display_name}) had their wakatime profile recached!")
 
     # Return that new profile
     return new_profile

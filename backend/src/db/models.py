@@ -25,9 +25,9 @@ class User(CodeCrunchrBase):
     )
 
     # Relationships with other models
-    preference_overrides = relationship("UserPreferenceOverride", back_populates="user")
-    credentials = relationship("OAuth2Credentials", back_populates="user")
-    wakatime_profile = relationship("WakatimeUserProfile", back_populates="user")
+    preference_overrides = relationship("UserPreferenceOverride", back_populates="user", cascade="all, delete-orphan")
+    credentials = relationship("OAuth2Credentials", back_populates="user", cascade="all, delete-orphan")
+    wakatime_profile = relationship("WakatimeUserProfile", back_populates="user", cascade="all, delete-orphan")
 
 
 class UserPreferenceOverride(CodeCrunchrBase):
@@ -40,7 +40,7 @@ class UserPreferenceOverride(CodeCrunchrBase):
 
     __tablename__ = "codecrunchr_preferences"
 
-    user_id: Mapped[UUID] = mapped_column(ForeignKey("codecrunchr_users.id"))
+    user_id: Mapped[UUID] = mapped_column(ForeignKey("codecrunchr_users.id", ondelete="CASCADE"))
 
     # Preference identifier
     slug: Mapped[str]
@@ -69,7 +69,7 @@ class OAuth2Credentials(CodeCrunchrBase):
 
     __tablename__ = "codecrunchr_oauth"
 
-    user_id: Mapped[UUID] = mapped_column(ForeignKey("codecrunchr_users.id"))
+    user_id: Mapped[UUID] = mapped_column(ForeignKey("codecrunchr_users.id", ondelete="CASCADE"))
 
     # The OAuth2 provider we got the credentials from
     provider: Mapped[str] = mapped_column(nullable=False)
@@ -101,7 +101,7 @@ class WakatimeUserProfile(CodeCrunchrBase):
     """
     __tablename__ = "codecrunchr_waka_profiles"
 
-    user_id : Mapped[UUID] = mapped_column(ForeignKey("codecrunchr_users.id"), primary_key=True)
+    user_id : Mapped[UUID] = mapped_column(ForeignKey("codecrunchr_users.id", ondelete="CASCADE"), primary_key=True)
     user = relationship("User", back_populates="wakatime_profile")
     
     # The user's display name on wakatime
