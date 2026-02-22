@@ -70,6 +70,12 @@ async def refresh_access_token(
             resp_status = resp.status
             raw_resp_text = await resp.text()
 
+    if resp_status == 400:
+        return WakatimeAPIResponse(
+            status_code=400,
+            response = None
+        )
+
     parsed_text_resp = parse_qs(raw_resp_text)
 
     response_object = AccessTokensResponse(
@@ -87,11 +93,27 @@ async def refresh_access_token(
     )
 
 
-# TODO
-async def revoke_token(token: str) -> None:
-    raise NotImplementedError()
+async def revoke_token(token: str, *, all : bool = False) -> WakatimeAPIResponse[None]:
+    """
+    Revokes the provided token.
 
+    If the optional kwarg `all` is true, then it revokes all of the tokens
+    associated with the user who owns the provided token.
+    """
 
-# TODO
-async def revoke_tokens_for_user(user_id: UUID) -> None:
-    raise NotImplementedError()
+    async with aiohttp.ClientSession() as cs:
+        async with cs.post(
+            "https://wakatime.com/oauth/revoke",
+            data = {
+                "client_id" : WAKA_CLIENT_ID,
+                "client_secret" : WAKA_CLIENT_SECRET,
+                "token" : token,
+                "all" : all
+            }
+        ) as resp:
+            status_code = resp.status
+
+    return WakatimeAPIResponse(
+        status_code = status_code,
+        response = None
+    )

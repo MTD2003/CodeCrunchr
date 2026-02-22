@@ -10,7 +10,7 @@ from logging import getLogger
 from sqlalchemy import select
 
 from ..db.models import User, WakatimeUserProfile
-from ..db.helpers import update_oauth_tokens, recache_wakatime_profile
+from ..db.helpers import update_oauth_tokens, recache_wakatime_profile, force_oauth_tokens_to_expire
 from ..db import get_session as get_db_session
 
 from ..models import users as user_models
@@ -18,7 +18,7 @@ from ..models import users as user_models
 from ..utils.env import get_required_env
 
 from ..dependencies.auth import clear_caches_for_token, TokenDependencyType, UserIDDependencyType, AuthHeaderDependencyType
-from ..wakatime.auth import get_access_tokens
+from ..wakatime.auth import get_access_tokens, revoke_token
 
 router = APIRouter()
 
@@ -105,8 +105,48 @@ async def post_user_login(
 
 
 @router.post("/revoke_token", tags=["auth"])
-async def post_user_revoke_token():
-    pass
+async def post_user_revoke_token(
+    auth_header : AuthHeaderDependencyType,
+    tokens : TokenDependencyType
+):
+    """
+    Revokes the user's wakatime tokens, which can force a re-authentication.
+    (Most endpoints will not work if the user does not have valid Wakatime tokens)
+    """
+
+    access_token = tokens["access_token"]
+    user_id = tokens["user_id"]
+
+    LOGGER.debug(f"Revoking auth tokens for user with id: {user_id} (revoke request)")
+
+    # Revoke all the user's tokens
+    resp = await revoke_token(access_token, all=True)
+
+    # CHECK FIRST and make sure that we actually successfully revoked the tokens.
+    # (If the tokens were already expired, this statement still holds true)
+    if resp.status_code != 200:
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to revoke tokens: wakatime returned non-OK response"
+        )
+    
+    # Clear our auth caches for the user
+    clear_caches_for_token(auth_header.credentials)
+
+    # Set the tokens as expired in the database
+    async with get_db_session() as session:
+        await force_oauth_tokens_to_expire(session, user_id)
+        
+        # Save db changes so the token *actually* expires...
+        await session.commit()
+
+    LOGGER.debug(f"Wakatime tokens successfully revoked for user with id: {user_id} (revoke request)")
+
+    # Then return a success response
+    return Response(
+        status_code=200,
+        content="Tokens have been revoked"
+    )
 
 
 @router.get("/user", tags=["users"], name="Get current user profile")
@@ -221,16 +261,30 @@ async def get_user_user(
 @router.delete("/user", tags=["users"])
 async def delete_user_user(
     auth_header: AuthHeaderDependencyType,
-    user_id: UserIDDependencyType
+    tokens : TokenDependencyType,
 ):
     """
     Deletes the current user and any assoc. data from CodeCrunchr.
     """
 
+    user_id = tokens["user_id"]
+
     # Clear caches
     clear_caches_for_token(auth_header.credentials)
 
     LOGGER.debug(f"Auth caches were cleared for user id: {user_id} (account deletion)")
+
+    # Revoke user's oauth tokens from wakatime
+    revoke_token_resp = await revoke_token(tokens["access_token"], all=True)
+
+    # In most cases, this shouldn't happen
+    if revoke_token_resp.status_code != 200:
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to revoke oauth tokens from wakatime"
+        )
+
+    LOGGER.debug(f"Wakatime tokens were revoked for user id: {user_id} (account deletion)")
 
     # Delete user in db, cascade all other tables
     async with get_db_session() as session:

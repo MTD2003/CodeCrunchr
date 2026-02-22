@@ -90,11 +90,6 @@ async def recache_wakatime_profile(
     if user_resp is None:
         raise ValueError("Failed to recache wakatime profile: No user found on Wakatime matching the provided user_id")
 
-    # Get the current user's token, because if `user_id` provided was "current",
-    # then the validation for the following function fails because "current" isn't
-    # a UUID... bruh.
-    current_users_token = tokens["user_id"]
-
     # This is the base insert statement...
     insert_statement = insert(WakatimeUserProfile).values(
         dict(
@@ -133,4 +128,30 @@ async def recache_wakatime_profile(
     return new_profile
 
 
-__all__ = ["is_oauth_expired", "update_oauth_tokens"]
+async def force_oauth_tokens_to_expire(
+    session: AsyncSession,
+    user_id: UUID,
+    provider : str = "wakatime"
+) -> None:
+    """
+    Forces OAuth2 tokens to expire in the database for the provided user id.
+
+    REMEMBER TO COMMIT! 
+    """
+    
+    stmt = (
+        select(OAuth2Credentials)
+            .where(OAuth2Credentials.provider == provider)
+            .where(OAuth2Credentials.user_id == user_id)
+        )
+    
+    user = await session.scalar(stmt)
+
+    if user is None:
+        raise ValueError("Cannot force expire oauth: invalid user_id or provider")
+    
+    # Setting user to datetime.min will ensure that the service sees the tokens as expired
+    user.expires_at = datetime.min
+
+
+__all__ = ["is_oauth_expired", "update_oauth_tokens", "recache_wakatime_profile"]

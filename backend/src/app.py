@@ -16,8 +16,9 @@ LOGGER = logging.getLogger(__name__)
 SETUP_LOGGING = lambda: logging.basicConfig(  # noqa: E731
     level=logging.DEBUG,
     stream=sys.stdout,
-    format="[%(asctime)s] %(levelname)s [%(name)s.%(funcName)s] %(message)s",
-    force=True
+    format="[%(asctime)s] %(levelname)-5.5s [%(name)s.%(funcName)s] %(message)s",
+    force=True,
+    datefmt=r"%F %H:%M:%S"
 )
 SETUP_LOGGING()
 
