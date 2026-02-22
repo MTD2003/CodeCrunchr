@@ -5,11 +5,13 @@ import aiohttp
 
 from . import WakatimeTokens
 
+
 class UserCityModel(BaseModel):
     country_code: str
     name: str
     state: str
     title: str
+
 
 class UserResponse(BaseModel):
     # https://wakatime.com/developers#users
@@ -48,12 +50,12 @@ class UserResponse(BaseModel):
     created_at: str
     modified_at: str
 
+
 class UserResponseModel(BaseModel):
     data: UserResponse
 
-async def get_current_user(
-    tokens: WakatimeTokens
-) -> UserResponse:
+
+async def get_current_user(tokens: WakatimeTokens) -> UserResponse:
     """
     Returns information about the current user (who owns the WakatimeTokens)
     """
@@ -61,9 +63,7 @@ async def get_current_user(
     async with aiohttp.ClientSession() as cs:
         async with cs.get(
             "https://wakatime.com/api/v1/users/current",
-            headers = {
-                "Authorization": f"Bearer {tokens['access_token']}"
-            }
+            headers={"Authorization": f"Bearer {tokens['access_token']}"},
         ) as resp:
             resp_json = await resp.read()
 
@@ -71,10 +71,8 @@ async def get_current_user(
 
     return user_resp_model.data
 
-async def get_user(
-    tokens: WakatimeTokens,
-    uuid: UUID
-) -> UserResponse | None:
+
+async def get_user(tokens: WakatimeTokens, uuid: UUID) -> UserResponse | None:
     """
     Returns information about the user specified, returns None if no
     user with the provided UUID exists
@@ -83,14 +81,11 @@ async def get_user(
     async with aiohttp.ClientSession() as cs:
         async with cs.get(
             f"https://wakatime.com/api/v1/users/{str(uuid)}",
-            headers = {
-                "Authorization" : f"Bearer {tokens['access_token']}"
-            }
+            headers={"Authorization": f"Bearer {tokens['access_token']}"},
         ) as resp:
-            
             if resp.status != 200:
                 return None
-            
+
             resp_json = await resp.read()
 
     user_resp_model = UserResponseModel.model_validate_json(resp_json)

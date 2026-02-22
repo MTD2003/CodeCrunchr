@@ -1,5 +1,5 @@
-from typing import Type, TypedDict, Generic, TypeVar, TypeAlias
-from datetime import date, datetime
+from typing import Type, TypedDict, Generic, TypeVar
+from datetime import datetime
 from uuid import UUID
 
 from pydantic import BaseModel
@@ -14,7 +14,7 @@ WAKA_REDIRECT_URI = get_required_env("WAKA_REDIRECT_URI")
 
 
 class WakatimeTokens(TypedDict):
-    user_id : UUID
+    user_id: UUID
     access_token: str
     refresh_token: str
 
@@ -44,21 +44,27 @@ class WakatimeAPIResponse(Generic[T]):
     def get(self) -> T | None:
         return self.response
 
+
 # Range vs Start/End date helpers
 
+
 class WakatimeRangeTimeframe(BaseModel):
-    range : str
+    range: str
+
 
 class WakatimeStartEndTimeframe(BaseModel):
-    start : str
-    end : str
+    start: str
+    end: str
+
 
 class InvalidTimeframeValue(Exception):
     pass
 
+
 WakatimeTimeframeType = Type[WakatimeStartEndTimeframe | WakatimeRangeTimeframe]
 
-def validate_start_end_timeframe(tf : WakatimeStartEndTimeframe) -> bool:
+
+def validate_start_end_timeframe(tf: WakatimeStartEndTimeframe) -> bool:
     try:
         datetime.strptime(tf.start, r"%Y-%m-%d")
         datetime.strptime(tf.end, r"%Y-%m-%d")
@@ -67,7 +73,8 @@ def validate_start_end_timeframe(tf : WakatimeStartEndTimeframe) -> bool:
     else:
         return True
 
-def validate_range_timeframe(tf : WakatimeRangeTimeframe) -> bool:
+
+def validate_range_timeframe(tf: WakatimeRangeTimeframe) -> bool:
     is_valid = tf.range in (
         "Today",
         "Yesterday",
@@ -76,24 +83,25 @@ def validate_range_timeframe(tf : WakatimeRangeTimeframe) -> bool:
         "Last 14 Days",
         "Last 30 Days",
         "This Week",
-        "Last Week", 
+        "Last Week",
         "This Month",
-        "Last Month"
+        "Last Month",
     )
 
     return is_valid
 
-def validate_timeframe(tf : WakatimeTimeframeType) -> None:
 
+def validate_timeframe(tf: WakatimeTimeframeType) -> None:
     if isinstance(tf, WakatimeRangeTimeframe):
         if not validate_range_timeframe(tf):
             raise InvalidTimeframeValue()
-        
+
     elif isinstance(tf, WakatimeStartEndTimeframe):
         if not validate_start_end_timeframe(tf):
             raise InvalidTimeframeValue()
-        
+
     else:
         raise InvalidTimeframeValue
+
 
 __all__ = ["WakatimeTokens", "WakatimeAPIResponseIsNone", "WakatimeAPIResponse"]

@@ -26,12 +26,14 @@ BEARER_SCHEME = HTTPBearer()
 USER_ID_CACHE: Cache[UUID] = Cache()
 WAKATIME_TOKEN_CACHE: Cache[WakatimeTokens] = Cache()
 
-def clear_caches_for_token(jwt_token : str) -> None:
+
+def clear_caches_for_token(jwt_token: str) -> None:
     """
     Removes any instance of the provided JWT from the auth caches
     """
     USER_ID_CACHE.remove(jwt_token)
     WAKATIME_TOKEN_CACHE.remove(jwt_token)
+
 
 # ========== SHARED FUNCTIONS ==========
 
@@ -166,8 +168,13 @@ async def get_current_user_wakatime_tokens(
     # return those sweet juicy decrypted tokens
     return tokens_obj
 
+
 # ========== DEPENDENCY TYPES ==========
 
-AuthHeaderDependencyType = Annotated[HTTPAuthorizationCredentials, Depends(BEARER_SCHEME)]
-TokenDependencyType = Annotated[WakatimeTokens, Depends(get_current_user_wakatime_tokens)]
+AuthHeaderDependencyType = Annotated[
+    HTTPAuthorizationCredentials, Depends(BEARER_SCHEME)
+]
+TokenDependencyType = Annotated[
+    WakatimeTokens, Depends(get_current_user_wakatime_tokens)
+]
 UserIDDependencyType = Annotated[UUID, Depends(get_current_user_id)]

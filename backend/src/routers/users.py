@@ -10,20 +10,29 @@ from logging import getLogger
 from sqlalchemy import select
 
 from ..db.models import User, WakatimeUserProfile
-from ..db.helpers import update_oauth_tokens, recache_wakatime_profile, force_oauth_tokens_to_expire
+from ..db.helpers import (
+    update_oauth_tokens,
+    recache_wakatime_profile,
+    force_oauth_tokens_to_expire,
+)
 from ..db import get_session as get_db_session
 
 from ..models import users as user_models
 
 from ..utils.env import get_required_env
 
-from ..dependencies.auth import clear_caches_for_token, TokenDependencyType, UserIDDependencyType, AuthHeaderDependencyType
+from ..dependencies.auth import (
+    clear_caches_for_token,
+    TokenDependencyType,
+    AuthHeaderDependencyType,
+)
 from ..wakatime.auth import get_access_tokens, revoke_token
 
 router = APIRouter()
 
 LOGGER = getLogger(__name__)
 RECACHE_OLD_WAKA_PROFILE_AFTER = timedelta(days=1)
+
 
 @router.post("/login", tags=["auth"])
 async def post_user_login(
@@ -62,7 +71,6 @@ async def post_user_login(
 
         # If we cannot find any users that match the user_uuid, then we must have a new user!
         if matched_users is None:
-            
             LOGGER.info(f"New user created with id: {token_resp['user_id']}")
 
             session.add(User(id=token_resp["user_id"]))
@@ -78,7 +86,9 @@ async def post_user_login(
             skip_encryption=False,
         )
 
-        LOGGER.debug(f"Got stale or non-existent tokens for user with id {token_resp['user_id']}, refreshed them!")
+        LOGGER.debug(
+            f"Got stale or non-existent tokens for user with id {token_resp['user_id']}, refreshed them!"
+        )
 
         # We've made sure our user exists, and our credentials are updated
         # Lets get out of john and commit ts twin
@@ -98,7 +108,9 @@ async def post_user_login(
         payload=token_payload, key=get_required_env("JWT_SECRET"), algorithm="HS256"
     )
 
-    LOGGER.debug(f"Successful login, created a new JWT for user with id: {token_payload['user_id']}")
+    LOGGER.debug(
+        f"Successful login, created a new JWT for user with id: {token_payload['user_id']}"
+    )
 
     # Return the auth token that the user can now use to login to the stuff they need to
     return user_models.LoginResponse(token=token)
@@ -106,8 +118,7 @@ async def post_user_login(
 
 @router.post("/revoke_token", tags=["auth"])
 async def post_user_revoke_token(
-    auth_header : AuthHeaderDependencyType,
-    tokens : TokenDependencyType
+    auth_header: AuthHeaderDependencyType, tokens: TokenDependencyType
 ):
     """
     Revokes the user's wakatime tokens, which can force a re-authentication.
@@ -127,26 +138,25 @@ async def post_user_revoke_token(
     if resp.status_code != 200:
         raise HTTPException(
             status_code=500,
-            detail="Failed to revoke tokens: wakatime returned non-OK response"
+            detail="Failed to revoke tokens: wakatime returned non-OK response",
         )
-    
+
     # Clear our auth caches for the user
     clear_caches_for_token(auth_header.credentials)
 
     # Set the tokens as expired in the database
     async with get_db_session() as session:
         await force_oauth_tokens_to_expire(session, user_id)
-        
+
         # Save db changes so the token *actually* expires...
         await session.commit()
 
-    LOGGER.debug(f"Wakatime tokens successfully revoked for user with id: {user_id} (revoke request)")
+    LOGGER.debug(
+        f"Wakatime tokens successfully revoked for user with id: {user_id} (revoke request)"
+    )
 
     # Then return a success response
-    return Response(
-        status_code=200,
-        content="Tokens have been revoked"
-    )
+    return Response(status_code=200, content="Tokens have been revoked")
 
 
 @router.get("/user", tags=["users"], name="Get current user profile")
@@ -156,29 +166,36 @@ async def get_current_user_profile(
     """
     Returns the current user's profile.
     """
-    
+
     # First we need to check and see whether or not the user has already been cached
-    stmt = select(WakatimeUserProfile).where(WakatimeUserProfile.user_id == tokens['user_id'])
+    stmt = select(WakatimeUserProfile).where(
+        WakatimeUserProfile.user_id == tokens["user_id"]
+    )
 
     LOGGER.debug(f"Getting user profile data for user id: {tokens['user_id']}")
-    
+
     async with get_db_session() as session:
-        # `resp` now holds the currently cached data (if any) 
+        # `resp` now holds the currently cached data (if any)
         resp = await session.scalar(stmt)
 
         # If there is no cached data, or the cached data is old, then recache the data
-        if resp is None or resp.last_cached_at + RECACHE_OLD_WAKA_PROFILE_AFTER <= datetime.now(tz=None):
+        if (
+            resp is None
+            or resp.last_cached_at + RECACHE_OLD_WAKA_PROFILE_AFTER
+            <= datetime.now(tz=None)
+        ):
+            LOGGER.debug(
+                f"User profile ({tokens['user_id']}) is stale or has never been pulled"
+            )
 
-            LOGGER.debug(f"User profile ({tokens['user_id']}) is stale or has never been pulled")
-            
             # This function returns the newly created instance of `WakatimeUserProfile`
             resp = await recache_wakatime_profile(session, tokens, "current")
-            
+
         # Build a response model, we need to do this here before we commit otherwise we lose
         # access to the data
         response_model = user_models.UserProfileResponse(
-            user_id = str(resp.user_id),
-            wakatime = user_models.WakatimeProfile(
+            user_id=str(resp.user_id),
+            wakatime=user_models.WakatimeProfile(
                 user_id=str(resp.user_id),
                 display_name=resp.display_name,
                 full_name=resp.full_name,
@@ -186,10 +203,10 @@ async def get_current_user_profile(
                 photo_url=resp.photo_url,
                 is_photo_public=resp.is_photo_public,
                 last_cached_at=resp.last_cached_at,
-            )
+            ),
         )
 
-        # Save after the recache 
+        # Save after the recache
         await session.commit()
 
     # Return the response model we built earlier
@@ -198,8 +215,7 @@ async def get_current_user_profile(
 
 @router.get("/user/{user_id}", tags=["users"])
 async def get_user_user(
-    tokens: TokenDependencyType,
-    user_id : UUID
+    tokens: TokenDependencyType, user_id: UUID
 ) -> user_models.UserProfileResponse:
     """
     Returns the provided user's profile.
@@ -208,12 +224,13 @@ async def get_user_user(
     do a request to query their data. For privacy's sake
     """
     codecrunchr_user_stmt = select(User).where(User.id == user_id)
-    waka_profile_stmt = select(WakatimeUserProfile).where(WakatimeUserProfile.user_id == user_id)
+    waka_profile_stmt = select(WakatimeUserProfile).where(
+        WakatimeUserProfile.user_id == user_id
+    )
 
     LOGGER.debug(f"Getting user profile data for user id: {tokens['user_id']}")
 
     async with get_db_session() as session:
-        
         # Try to fetch the user
         user = await session.scalar(codecrunchr_user_stmt)
 
@@ -221,7 +238,7 @@ async def get_user_user(
         if user is None:
             raise HTTPException(
                 status_code=404,
-                detail=f"User with id `{user_id}` not found on CodeCrunchr"
+                detail=f"User with id `{user_id}` not found on CodeCrunchr",
             )
 
         # At this point, we know we have a valid user
@@ -229,18 +246,23 @@ async def get_user_user(
         waka_profile = await session.scalar(waka_profile_stmt)
 
         # If there is no cached data, or the cached data is old, then recache the data
-        if waka_profile is None or waka_profile.last_cached_at + RECACHE_OLD_WAKA_PROFILE_AFTER <= datetime.now(tz=None):
+        if (
+            waka_profile is None
+            or waka_profile.last_cached_at + RECACHE_OLD_WAKA_PROFILE_AFTER
+            <= datetime.now(tz=None)
+        ):
+            LOGGER.debug(
+                f"User profile ({tokens['user_id']}) is stale or has never been pulled"
+            )
 
-            LOGGER.debug(f"User profile ({tokens['user_id']}) is stale or has never been pulled")
-            
             # This function returns the newly created instance of `WakatimeUserProfile`
             waka_profile = await recache_wakatime_profile(session, tokens, "current")
-            
+
         # Build a response model, we need to do this here before we commit otherwise we lose
         # access to the data
         response_model = user_models.UserProfileResponse(
-            user_id = str(waka_profile.user_id),
-            wakatime = user_models.WakatimeProfile(
+            user_id=str(waka_profile.user_id),
+            wakatime=user_models.WakatimeProfile(
                 user_id=str(waka_profile.user_id),
                 display_name=waka_profile.display_name,
                 full_name=waka_profile.full_name,
@@ -248,10 +270,10 @@ async def get_user_user(
                 photo_url=waka_profile.photo_url,
                 is_photo_public=waka_profile.is_photo_public,
                 last_cached_at=waka_profile.last_cached_at,
-            )
+            ),
         )
 
-        # Save after the recache 
+        # Save after the recache
         await session.commit()
 
     # Return the response model we built earlier
@@ -261,7 +283,7 @@ async def get_user_user(
 @router.delete("/user", tags=["users"])
 async def delete_user_user(
     auth_header: AuthHeaderDependencyType,
-    tokens : TokenDependencyType,
+    tokens: TokenDependencyType,
 ):
     """
     Deletes the current user and any assoc. data from CodeCrunchr.
@@ -280,11 +302,12 @@ async def delete_user_user(
     # In most cases, this shouldn't happen
     if revoke_token_resp.status_code != 200:
         raise HTTPException(
-            status_code=500,
-            detail="Failed to revoke oauth tokens from wakatime"
+            status_code=500, detail="Failed to revoke oauth tokens from wakatime"
         )
 
-    LOGGER.debug(f"Wakatime tokens were revoked for user id: {user_id} (account deletion)")
+    LOGGER.debug(
+        f"Wakatime tokens were revoked for user id: {user_id} (account deletion)"
+    )
 
     # Delete user in db, cascade all other tables
     async with get_db_session() as session:
@@ -293,12 +316,11 @@ async def delete_user_user(
         # Sanity check, this should never happen, if it does something SERIOUSLY went wrong
         if not user:
             raise HTTPException(
-                status_code=404,
-                detail="Cannot delete user, user doesn't exist???"
+                status_code=404, detail="Cannot delete user, user doesn't exist???"
             )
-        
+
         # Delete the user
-        # Provided I set the database up correctly, this *should* also trigger 
+        # Provided I set the database up correctly, this *should* also trigger
         # an ON CASCADE clause, deleting the rest of the data associated with this user.
         await session.delete(user)
 
@@ -309,5 +331,6 @@ async def delete_user_user(
 
     # return le epic response
     return Response(status_code=200, content="User deleted successfully!")
+
 
 __all__ = ["router"]

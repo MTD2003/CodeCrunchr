@@ -71,10 +71,7 @@ async def refresh_access_token(
             raw_resp_text = await resp.text()
 
     if resp_status == 400:
-        return WakatimeAPIResponse(
-            status_code=400,
-            response = None
-        )
+        return WakatimeAPIResponse(status_code=400, response=None)
 
     parsed_text_resp = parse_qs(raw_resp_text)
 
@@ -93,7 +90,7 @@ async def refresh_access_token(
     )
 
 
-async def revoke_token(token: str, *, all : bool = False) -> WakatimeAPIResponse[None]:
+async def revoke_token(token: str, *, all: bool = False) -> WakatimeAPIResponse[None]:
     """
     Revokes the provided token.
 
@@ -104,16 +101,13 @@ async def revoke_token(token: str, *, all : bool = False) -> WakatimeAPIResponse
     async with aiohttp.ClientSession() as cs:
         async with cs.post(
             "https://wakatime.com/oauth/revoke",
-            data = {
-                "client_id" : WAKA_CLIENT_ID,
-                "client_secret" : WAKA_CLIENT_SECRET,
-                "token" : token,
-                "all" : all
-            }
+            data={
+                "client_id": WAKA_CLIENT_ID,
+                "client_secret": WAKA_CLIENT_SECRET,
+                "token": token,
+                "all": all,
+            },
         ) as resp:
             status_code = resp.status
 
-    return WakatimeAPIResponse(
-        status_code = status_code,
-        response = None
-    )
+    return WakatimeAPIResponse(status_code=status_code, response=None)

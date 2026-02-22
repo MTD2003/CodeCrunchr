@@ -60,7 +60,7 @@ class Cache(Generic[T]):
             if not v.is_valid():
                 del self.cached_items[k]
 
-    def remove(self, key : str) -> None:
+    def remove(self, key: str) -> None:
         if key in self.cached_items:
             del self.cached_items[key]
 

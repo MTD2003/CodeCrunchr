@@ -25,9 +25,15 @@ class User(CodeCrunchrBase):
     )
 
     # Relationships with other models
-    preference_overrides = relationship("UserPreferenceOverride", back_populates="user", cascade="all, delete-orphan")
-    credentials = relationship("OAuth2Credentials", back_populates="user", cascade="all, delete-orphan")
-    wakatime_profile = relationship("WakatimeUserProfile", back_populates="user", cascade="all, delete-orphan")
+    preference_overrides = relationship(
+        "UserPreferenceOverride", back_populates="user", cascade="all, delete-orphan"
+    )
+    credentials = relationship(
+        "OAuth2Credentials", back_populates="user", cascade="all, delete-orphan"
+    )
+    wakatime_profile = relationship(
+        "WakatimeUserProfile", back_populates="user", cascade="all, delete-orphan"
+    )
 
 
 class UserPreferenceOverride(CodeCrunchrBase):
@@ -40,7 +46,9 @@ class UserPreferenceOverride(CodeCrunchrBase):
 
     __tablename__ = "codecrunchr_preferences"
 
-    user_id: Mapped[UUID] = mapped_column(ForeignKey("codecrunchr_users.id", ondelete="CASCADE"))
+    user_id: Mapped[UUID] = mapped_column(
+        ForeignKey("codecrunchr_users.id", ondelete="CASCADE")
+    )
 
     # Preference identifier
     slug: Mapped[str]
@@ -69,7 +77,9 @@ class OAuth2Credentials(CodeCrunchrBase):
 
     __tablename__ = "codecrunchr_oauth"
 
-    user_id: Mapped[UUID] = mapped_column(ForeignKey("codecrunchr_users.id", ondelete="CASCADE"))
+    user_id: Mapped[UUID] = mapped_column(
+        ForeignKey("codecrunchr_users.id", ondelete="CASCADE")
+    )
 
     # The OAuth2 provider we got the credentials from
     provider: Mapped[str] = mapped_column(nullable=False)
@@ -95,18 +105,22 @@ class OAuth2Credentials(CodeCrunchrBase):
         PrimaryKeyConstraint("user_id", "provider", name="pk_provider_per_user"),
     )
 
+
 class WakatimeUserProfile(CodeCrunchrBase):
     """
     Responsible for holding information about the user's wakatime account
     """
+
     __tablename__ = "codecrunchr_waka_profiles"
 
-    user_id : Mapped[UUID] = mapped_column(ForeignKey("codecrunchr_users.id", ondelete="CASCADE"), primary_key=True)
+    user_id: Mapped[UUID] = mapped_column(
+        ForeignKey("codecrunchr_users.id", ondelete="CASCADE"), primary_key=True
+    )
     user = relationship("User", back_populates="wakatime_profile")
-    
+
     # The user's display name on wakatime
     # Could be `full_name`, could be @username, who knows!
-    display_name : Mapped[str]
+    display_name: Mapped[str]
 
     # The user's full name
     full_name: Mapped[str]
@@ -115,7 +129,7 @@ class WakatimeUserProfile(CodeCrunchrBase):
     username: Mapped[str]
 
     # A url pointing the the user's profile photo on wakatime
-    photo_url : Mapped[str]
+    photo_url: Mapped[str]
 
     # Whether or not the user publicly shows their photo on wakatime
     # (We should respect this)
@@ -126,8 +140,13 @@ class WakatimeUserProfile(CodeCrunchrBase):
     # Could be useful, in America/Halifax format I believe
     timezone: Mapped[str]
 
-    last_cached_at : Mapped[datetime] = mapped_column(server_default=db_funcs.now())
+    last_cached_at: Mapped[datetime] = mapped_column(server_default=db_funcs.now())
 
 
-
-__all__ = ["CodeCrunchrBase", "User", "UserPreferenceOverride", "OAuth2Credentials", "WakatimeUserProfile"]
+__all__ = [
+    "CodeCrunchrBase",
+    "User",
+    "UserPreferenceOverride",
+    "OAuth2Credentials",
+    "WakatimeUserProfile",
+]

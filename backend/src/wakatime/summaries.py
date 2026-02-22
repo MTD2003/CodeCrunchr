@@ -1,16 +1,23 @@
 from pydantic import BaseModel
-import aiohttp
 
-from . import WakatimeAPIResponse, WakatimeTokens, WakatimeTimeframeType, validate_timeframe
+from . import (
+    WakatimeAPIResponse,
+    WakatimeTokens,
+    WakatimeTimeframeType,
+    validate_timeframe,
+)
+
 
 class SummaryMetadataModel(BaseModel):
     name: str
+
 
 class LineChanges(SummaryMetadataModel):
     human_additions: int
     human_deletions: int
     ai_additions: int
     ai_deletions: int
+
 
 class Duration(SummaryMetadataModel):
     hours: int
@@ -21,35 +28,46 @@ class Duration(SummaryMetadataModel):
     text: str
     percent: float
 
+
 class GrandTotalModel(LineChanges, Duration):
     pass
+
 
 class CategoryModel(Duration):
     pass
 
+
 class ProjectModel(LineChanges, Duration):
     pass
+
 
 class LanguageModel(Duration):
     pass
 
+
 class EditorModel(Duration):
     pass
+
 
 class OSModel(Duration):
     pass
 
+
 class DependencyModel(Duration):
     pass
+
 
 class MachineModel(Duration):
     machine_name_id: str
 
+
 class BranchModel(Duration):
     pass
 
+
 class EntityModel(LineChanges, Duration):
     pass
+
 
 class Range(BaseModel):
     date: str
@@ -57,6 +75,7 @@ class Range(BaseModel):
     end: str
     text: str
     timezone: str
+
 
 class SummarySections(BaseModel):
     grand_total: GrandTotalModel
@@ -71,11 +90,13 @@ class SummarySections(BaseModel):
     entities: list[EntityModel]
     range: Range
 
+
 class CumulativeTotalModel(BaseModel):
     seconds: float
     text: str
     decimal: str
     digital: str
+
 
 class DailyAverageModel(BaseModel):
     holidays: int
@@ -85,6 +106,7 @@ class DailyAverageModel(BaseModel):
     text: str
     seconds_including_other_language: float
     text_including_other_language: str
+
 
 class SummaryResponseModel(BaseModel):
     data: SummarySections
@@ -96,10 +118,8 @@ class SummaryResponseModel(BaseModel):
 
 
 async def get_summaries(
-    tokens : WakatimeTokens,
-    timeframe : WakatimeTimeframeType
+    tokens: WakatimeTokens, timeframe: WakatimeTimeframeType
 ) -> WakatimeAPIResponse[SummaryResponseModel]:
-    
     if not validate_timeframe(timeframe):
         raise ValueError("Invalid timeframe format supplied")
 

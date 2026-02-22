@@ -18,9 +18,10 @@ SETUP_LOGGING = lambda: logging.basicConfig(  # noqa: E731
     stream=sys.stdout,
     format="[%(asctime)s] %(levelname)-5.5s [%(name)s.%(funcName)s] %(message)s",
     force=True,
-    datefmt=r"%F %H:%M:%S"
+    datefmt=r"%F %H:%M:%S",
 )
 SETUP_LOGGING()
+
 
 def add_presceduled_jobs(js: JobScheduler) -> None:
     """

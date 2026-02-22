@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta
 from typing import Literal, Union
 from uuid import UUID
-from sqlalchemy import select, update
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.dialects.postgresql import insert
 from logging import getLogger
@@ -13,6 +13,7 @@ from ..db.models import OAuth2Credentials, WakatimeUserProfile
 
 OAUTH_EARLY_EXPIRY_DELTA = timedelta(minutes=5)
 LOGGER = getLogger(__name__)
+
 
 async def update_oauth_tokens(
     session: AsyncSession,
@@ -61,15 +62,17 @@ def is_oauth_expired(
 ) -> bool:
     is_expired = creds.expires_at < (datetime.now() + pos_offset)
 
-    LOGGER.debug(f"Check for expired credentials for user id: {creds.user_id}, {is_expired=}")
+    LOGGER.debug(
+        f"Check for expired credentials for user id: {creds.user_id}, {is_expired=}"
+    )
 
     return is_expired
 
 
 async def recache_wakatime_profile(
     session: AsyncSession,
-    tokens : WakatimeTokens,
-    user_id : Union[Literal["current"], UUID]
+    tokens: WakatimeTokens,
+    user_id: Union[Literal["current"], UUID],
 ) -> WakatimeUserProfile:
     """
     Forces a recache for a user's wakatime profile.
@@ -81,27 +84,33 @@ async def recache_wakatime_profile(
     """
 
     # HACK: evil f**king wizard sh*t lol
-    coro = waka_user_funcs.get_current_user(tokens) if user_id == "current" else waka_user_funcs.get_user(tokens, user_id)
+    coro = (
+        waka_user_funcs.get_current_user(tokens)
+        if user_id == "current"
+        else waka_user_funcs.get_user(tokens, user_id)
+    )
 
     # We run the coroutine we got above to get a UserResponse
     user_resp = await coro
 
     # If we don't get a user, then the user must have provided an invalid id
     if user_resp is None:
-        raise ValueError("Failed to recache wakatime profile: No user found on Wakatime matching the provided user_id")
+        raise ValueError(
+            "Failed to recache wakatime profile: No user found on Wakatime matching the provided user_id"
+        )
 
     # This is the base insert statement...
     insert_statement = insert(WakatimeUserProfile).values(
         dict(
-            user_id = user_resp.id,
-            display_name = user_resp.display_name,
-            full_name = user_resp.full_name,
-            username = user_resp.username,
-            photo_url = user_resp.photo,
-            is_photo_public = user_resp.is_photo_public,
-            email = user_resp.email,
-            timezone = user_resp.timezone,
-            last_cached_at = datetime.now(tz=None)
+            user_id=user_resp.id,
+            display_name=user_resp.display_name,
+            full_name=user_resp.full_name,
+            username=user_resp.username,
+            photo_url=user_resp.photo,
+            is_photo_public=user_resp.is_photo_public,
+            email=user_resp.email,
+            timezone=user_resp.timezone,
+            last_cached_at=datetime.now(tz=None),
         )
     )
 
@@ -109,11 +118,9 @@ async def recache_wakatime_profile(
     # row in the case where the user *has* had their data pulled previously.
     # They are seperated because we need `insert_statement.excluded` to find what columns
     # in the record need updating.
-    insert_statement_with_conflict_clause = (
-        insert_statement
-            .on_conflict_do_update(set_=insert_statement.excluded, index_elements=[WakatimeUserProfile.user_id])
-            .returning(WakatimeUserProfile)
-        )
+    insert_statement_with_conflict_clause = insert_statement.on_conflict_do_update(
+        set_=insert_statement.excluded, index_elements=[WakatimeUserProfile.user_id]
+    ).returning(WakatimeUserProfile)
 
     # Run that statement we just built.
     new_profile = await session.scalar(insert_statement_with_conflict_clause)
@@ -122,34 +129,34 @@ async def recache_wakatime_profile(
     if new_profile is None:
         raise Exception("Something went wrong")
 
-    LOGGER.debug(f"User with id: {user_id} ({user_resp.display_name}) had their wakatime profile recached!")
+    LOGGER.debug(
+        f"User with id: {user_id} ({user_resp.display_name}) had their wakatime profile recached!"
+    )
 
     # Return that new profile
     return new_profile
 
 
 async def force_oauth_tokens_to_expire(
-    session: AsyncSession,
-    user_id: UUID,
-    provider : str = "wakatime"
+    session: AsyncSession, user_id: UUID, provider: str = "wakatime"
 ) -> None:
     """
     Forces OAuth2 tokens to expire in the database for the provided user id.
 
-    REMEMBER TO COMMIT! 
+    REMEMBER TO COMMIT!
     """
-    
+
     stmt = (
         select(OAuth2Credentials)
-            .where(OAuth2Credentials.provider == provider)
-            .where(OAuth2Credentials.user_id == user_id)
-        )
-    
+        .where(OAuth2Credentials.provider == provider)
+        .where(OAuth2Credentials.user_id == user_id)
+    )
+
     user = await session.scalar(stmt)
 
     if user is None:
         raise ValueError("Cannot force expire oauth: invalid user_id or provider")
-    
+
     # Setting user to datetime.min will ensure that the service sees the tokens as expired
     user.expires_at = datetime.min
 

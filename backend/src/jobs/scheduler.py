@@ -3,6 +3,7 @@ from logging import getLogger
 
 LOGGER = getLogger(__name__)
 
+
 class JobScheduler(AsyncIOScheduler):
     """
     Singleton for the job scheduler.
