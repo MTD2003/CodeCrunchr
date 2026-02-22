@@ -1,10 +1,14 @@
 from datetime import datetime, timedelta
+from typing import Literal, Union
 from uuid import UUID
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.dialects.postgresql import insert
 
+from ..wakatime import WakatimeTokens
+from ..wakatime import user as waka_user_funcs
 from ..utils import tokens as tokens_utils
-from ..db.models import OAuth2Credentials
+from ..db.models import OAuth2Credentials, WakatimeUserProfile
 
 OAUTH_EARLY_EXPIRY_DELTA = timedelta(minutes=5)
 
@@ -49,10 +53,69 @@ async def update_oauth_tokens(
     )
 
 
-async def is_oauth_expired(
+def is_oauth_expired(
     creds: OAuth2Credentials, *, pos_offset: timedelta = OAUTH_EARLY_EXPIRY_DELTA
 ) -> bool:
-    return creds.expires_at >= (datetime.now() + pos_offset)
+    return creds.expires_at < (datetime.now() + pos_offset)
+
+
+async def recache_wakatime_profile(
+    session: AsyncSession,
+    tokens : WakatimeTokens,
+    user_id : Union[Literal["current"], UUID]
+) -> WakatimeUserProfile:
+    """
+    Forces a recache for a user's wakatime profile.
+
+    This function handles the database side and allat, but does not
+    check to see if the profile is old, do that yourself.
+
+    REMEMBER TO COMMIT AFTER THIS!!
+    """
+
+    # HACK: evil f**king wizard sh*t lol
+    coro = waka_user_funcs.get_current_user(tokens) if user_id == "current" else waka_user_funcs.get_user(tokens, user_id)
+
+    # We run the coroutine we got above to get a UserResponse
+    user_resp = await coro
+
+    # If we don't get a user, then the user must have provided an invalid id
+    if user_resp is None:
+        raise ValueError("Failed to recache wakatime profile: No user found on Wakatime matching the provided user_id")
+
+    # Build the new user profile object from the response we got from wakatime
+    new_profile = WakatimeUserProfile(
+        user_id = user_resp.id,
+        display_name = user_resp.display_name,
+        full_name = user_resp.full_name,
+        username = user_resp.username,
+        photo_url = user_resp.photo,
+        is_photo_public = user_resp.is_photo_public,
+        email = user_resp.email,
+        timezone = user_resp.timezone,
+        last_cached_at = datetime.now(tz=None)
+    )
+
+    # Get the current user's token, because if `user_id` provided was "current",
+    # then the validation for the following function fails because "current" isn't
+    # a UUID... bruh.
+    current_users_token = tokens["user_id"]
+
+    # Try to get the old profile
+    old_profile = await session.get(
+        WakatimeUserProfile, 
+        current_users_token if user_id == "current" else current_users_token
+    )
+
+    # If there is an old profile that we no longer need, then we delete it
+    if old_profile:
+        await session.delete(old_profile)
+
+    # Add the new profile to be committed
+    session.add(new_profile)
+
+    # Return that new profile
+    return new_profile
 
 
 __all__ = ["is_oauth_expired", "update_oauth_tokens"]

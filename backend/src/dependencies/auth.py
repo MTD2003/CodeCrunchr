@@ -143,6 +143,7 @@ async def get_current_user_wakatime_tokens(
 
     # Create a dict containing both tokens
     tokens_obj = WakatimeTokens(
+        user_id=user_id,
         access_token=decrypted_access_token,
         refresh_token=decrypted_refresh_token,
     )

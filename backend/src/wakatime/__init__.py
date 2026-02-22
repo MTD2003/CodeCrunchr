@@ -1,4 +1,8 @@
-from typing import TypedDict, Generic, TypeVar
+from typing import Type, TypedDict, Generic, TypeVar, TypeAlias
+from datetime import date, datetime
+from uuid import UUID
+
+from pydantic import BaseModel
 
 from ..utils.env import get_required_env
 
@@ -10,6 +14,7 @@ WAKA_REDIRECT_URI = get_required_env("WAKA_REDIRECT_URI")
 
 
 class WakatimeTokens(TypedDict):
+    user_id : UUID
     access_token: str
     refresh_token: str
 
@@ -39,5 +44,56 @@ class WakatimeAPIResponse(Generic[T]):
     def get(self) -> T | None:
         return self.response
 
+# Range vs Start/End date helpers
+
+class WakatimeRangeTimeframe(BaseModel):
+    range : str
+
+class WakatimeStartEndTimeframe(BaseModel):
+    start : str
+    end : str
+
+class InvalidTimeframeValue(Exception):
+    pass
+
+WakatimeTimeframeType = Type[WakatimeStartEndTimeframe | WakatimeRangeTimeframe]
+
+def validate_start_end_timeframe(tf : WakatimeStartEndTimeframe) -> bool:
+    try:
+        datetime.strptime(tf.start, r"%Y-%m-%d")
+        datetime.strptime(tf.end, r"%Y-%m-%d")
+    except ValueError as _:
+        return False
+    else:
+        return True
+
+def validate_range_timeframe(tf : WakatimeRangeTimeframe) -> bool:
+    is_valid = tf.range in (
+        "Today",
+        "Yesterday",
+        "Last 7 Days",
+        "Last 7 Days from Yesterday",
+        "Last 14 Days",
+        "Last 30 Days",
+        "This Week",
+        "Last Week", 
+        "This Month",
+        "Last Month"
+    )
+
+    return is_valid
+
+def validate_timeframe(tf : WakatimeTimeframeType) -> None:
+
+    if isinstance(tf, WakatimeRangeTimeframe):
+        if not validate_range_timeframe(tf):
+            raise InvalidTimeframeValue()
+        
+    elif isinstance(tf, WakatimeStartEndTimeframe):
+        if not validate_start_end_timeframe(tf):
+            raise InvalidTimeframeValue()
+        
+    else:
+        raise InvalidTimeframeValue
 
 __all__ = ["WakatimeTokens", "WakatimeAPIResponseIsNone", "WakatimeAPIResponse"]

@@ -1,3 +1,5 @@
+from datetime import datetime, timedelta
+
 from fastapi.routing import APIRouter
 from fastapi import Depends, HTTPException, Query
 from typing import Annotated
@@ -6,19 +8,22 @@ import jwt as pyjwt
 
 from sqlalchemy import select
 
-from ..db.models import User
-from ..db.helpers import update_oauth_tokens
+from ..db.models import User, WakatimeUserProfile
+from ..db.helpers import update_oauth_tokens, recache_wakatime_profile
 from ..db import get_session as get_db_session
 
 from ..models import users as user_models
 
 from ..utils.env import get_required_env
 
-from ..dependencies.auth import get_current_user_id
+from ..dependencies.auth import get_current_user_wakatime_tokens
+from ..wakatime import WakatimeTokens
 from ..wakatime.auth import get_access_tokens
+from ..wakatime.user import get_current_user
 
 router = APIRouter()
 
+RECACHE_OLD_WAKA_PROFILE_AFTER = timedelta(minutes=10)
 
 @router.post("/login", tags=["auth"])
 async def post_user_login(
@@ -93,17 +98,97 @@ async def post_user_revoke_token():
     pass
 
 
-@router.get("/user", tags=["user"], name="Get current user profile")
+@router.get("/user", tags=["users"], name="Get current user profile")
 async def get_current_user_profile(
-    user_id: Annotated[UUID, Depends(get_current_user_id)],
-):
-    # HACK: Just to prove that auth is working to some capacity
-    return f"{user_id=}"
+    tokens: Annotated[WakatimeTokens, Depends(get_current_user_wakatime_tokens)],
+) -> user_models.UserProfileResponse:
+    """
+    Returns the current user's profile.
+    """
+    
+    # First we need to check and see whether or not the user has already been cached
+    stmt = select(WakatimeUserProfile).where(WakatimeUserProfile.user_id == tokens['user_id'])
+    
+    async with get_db_session() as session:
+        # `resp` now holds the currently cached data (if any) 
+        resp = await session.scalar(stmt)
+
+        # If there is no cached data, or the cached data is old, then recache the data
+        if resp is None or resp.last_cached_at + RECACHE_OLD_WAKA_PROFILE_AFTER <= datetime.now():
+            
+            # This function returns the newly created instance of `WakatimeUserProfile`
+            resp = await recache_wakatime_profile(session, tokens, "current")
+            
+            # Save after the recache 
+            await session.commit()
+
+        # At this point, we know we have an up-to-date WakatimeUserProfile instance.
+        return user_models.UserProfileResponse(
+            user_id = str(resp.user_id),
+            wakatime = user_models.WakatimeProfile(
+                user_id=str(resp.user_id),
+                display_name=resp.display_name,
+                full_name=resp.full_name,
+                username=resp.username,
+                photo_url=resp.photo_url,
+                is_photo_public=resp.is_photo_public,
+                last_cached_at=resp.last_cached_at,
+            )
+        )
 
 
 @router.get("/user/{user_id}", tags=["users"])
-async def get_user_user():
-    pass
+async def get_user_user(
+    tokens: Annotated[WakatimeTokens, Depends(get_current_user_wakatime_tokens)],
+    user_id : UUID
+) -> user_models.UserProfileResponse:
+    """
+    Returns the provided user's profile.
+
+    Caveat: They need to have an account with our service in order for us to
+    do a request to query their data. For privacy's sake
+    """
+    codecrunchr_user_stmt = select(User).where(User.id == user_id)
+    waka_profile_stmt = select(WakatimeUserProfile).where(WakatimeUserProfile.user_id == user_id)
+
+    async with get_db_session() as session:
+        
+        # Try to fetch the user
+        user = await session.scalar(codecrunchr_user_stmt)
+
+        # If we fail to find a user with the provided UUID, then raise a 404
+        if user is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"User with id `{user_id}` not found on CodeCrunchr"
+            )
+
+        # At this point, we know we have a valid user
+        # We then copy the same protocol as the get_current_user_profile() func
+        waka_profile = await session.scalar(waka_profile_stmt)
+
+        # If there is no cached data, or the cached data is old, then recache the data
+        if waka_profile is None or waka_profile.last_cached_at + RECACHE_OLD_WAKA_PROFILE_AFTER <= datetime.now():
+            
+            # This function returns the newly created instance of `WakatimeUserProfile`
+            waka_profile = await recache_wakatime_profile(session, tokens, "current")
+            
+            # Save after the recache 
+            await session.commit()
+
+        # At this point, we know we have an up-to-date WakatimeUserProfile instance.
+        return user_models.UserProfileResponse(
+            user_id = str(waka_profile.user_id),
+            wakatime = user_models.WakatimeProfile(
+                user_id=str(waka_profile.user_id),
+                display_name=waka_profile.display_name,
+                full_name=waka_profile.full_name,
+                username=waka_profile.username,
+                photo_url=waka_profile.photo_url,
+                is_photo_public=waka_profile.is_photo_public,
+                last_cached_at=waka_profile.last_cached_at,
+            )
+        )
 
 
 @router.delete("/user", tags=["users"])
