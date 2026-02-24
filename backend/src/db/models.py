@@ -145,49 +145,55 @@ class WakatimeUserProfile(CodeCrunchrBase):
 
     last_cached_at: Mapped[datetime] = mapped_column(server_default=db_funcs.now())
 
+
 class WakatimeDuration(CodeCrunchrBase):
     """
     Responsible for holding the cumulative duration data
     """
+
     __tablename__ = "codecrunchr_wakatime_durations"
 
-    id : Mapped[int] = mapped_column(primary_key=True)
+    id: Mapped[int] = mapped_column(primary_key=True)
 
-    user_id : Mapped[UUID] = mapped_column(ForeignKey("codecrunchr_users.id", ondelete="CASCADE"))
+    user_id: Mapped[UUID] = mapped_column(
+        ForeignKey("codecrunchr_users.id", ondelete="CASCADE")
+    )
     user = relationship("User", back_populates="wakatime_durations")
 
-    date : Mapped["date"]
+    date: Mapped["date"]
 
-    total_seconds : Mapped[float]
+    total_seconds: Mapped[float]
 
-    last_cached_at : Mapped[datetime] = mapped_column(server_default=db_funcs.now())
+    last_cached_at: Mapped[datetime] = mapped_column(server_default=db_funcs.now())
 
-    languages : Mapped[list["WakatimeLanguageDuration"]] = relationship(
-        "WakatimeLanguageDuration", back_populates="parent", cascade="all, delete-orphan"
+    languages: Mapped[list["WakatimeLanguageDuration"]] = relationship(
+        "WakatimeLanguageDuration",
+        back_populates="parent",
+        cascade="all, delete-orphan",
     )
 
-    __table_args__ = (
-        UniqueConstraint("user_id", "date", name="unique_date_user_id"),
-    )
+    __table_args__ = (UniqueConstraint("user_id", "date", name="unique_date_user_id"),)
+
 
 class WakatimeLanguageDuration(CodeCrunchrBase):
     """
     Responsible for holding an individual language breakdown for a duration
     record.
 
-    The aggregation of all language durations total_seconds should equal the 
-    parent duration's total_seconds. 
+    The aggregation of all language durations total_seconds should equal the
+    parent duration's total_seconds.
     """
+
     __tablename__ = "codecrunchr_wakatime_language_durations"
 
-    parent_id : Mapped[int] = mapped_column(ForeignKey("codecrunchr_wakatime_durations.id", ondelete="CASCADE"))
-    parent = relationship(
-        "WakatimeDuration", back_populates="languages"
+    parent_id: Mapped[int] = mapped_column(
+        ForeignKey("codecrunchr_wakatime_durations.id", ondelete="CASCADE")
     )
-    
-    language : Mapped[str]
+    parent = relationship("WakatimeDuration", back_populates="languages")
 
-    total_seconds : Mapped[float]
+    language: Mapped[str]
+
+    total_seconds: Mapped[float]
 
     __table_args__ = (
         PrimaryKeyConstraint("parent_id", "language", name="pk_parent_id_language"),

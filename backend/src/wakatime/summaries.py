@@ -1,4 +1,3 @@
-import json
 from typing import Literal, Union
 from uuid import UUID
 
@@ -35,12 +34,12 @@ class Duration(SummaryMetadataModel):
 
 
 class GrandTotalModel(BaseModel):
-    hours : int
-    minutes : int
+    hours: int
+    minutes: int
     total_seconds: float
-    digital : str
-    decimal : str
-    text : str
+    digital: str
+    decimal: str
+    text: str
     human_additions: int
     human_deletions: int
     ai_additions: int
@@ -133,16 +132,16 @@ class SummaryResponseModel(BaseModel):
 
 async def get_summaries(
     tokens: WakatimeTokens,
-    user : Union[Literal["current"], UUID],
-    timeframe: WakatimeTimeframeType
+    user: Union[Literal["current"], UUID],
+    timeframe: WakatimeTimeframeType,
 ) -> WakatimeAPIResponse[SummaryResponseModel]:
     """
     Rerturns a user's coding activity for the given time range in the summaries format.
 
     The summaries format aggregates heartbeats and durations so we don't need to compute them
-    ourselves. 
+    ourselves.
     """
-    
+
     # Ensure the timeframe is formatted correctly.
     if not validate_timeframe(timeframe):
         raise ValueError("Invalid timeframe format supplied")
@@ -150,12 +149,8 @@ async def get_summaries(
     async with aiohttp.ClientSession() as cs:
         async with cs.get(
             f"https://wakatime.com/api/v1/users/{user}/summaries",
-            headers = {
-                "Authorization" : f"Bearer {tokens['access_token']}"
-            },
-            params = {
-                **timeframe.model_dump()
-            }
+            headers={"Authorization": f"Bearer {tokens['access_token']}"},
+            params={**timeframe.model_dump()},
         ) as resp:
             status_code = resp.status
             resp_json = await resp.read()
@@ -163,13 +158,12 @@ async def get_summaries(
     # If we don't get an OK response, then we must have an error.
     if status_code != 200:
         return WakatimeAPIResponse(status_code=status_code, response=None)
-    
+
     # Otherwise, return the summary response model
     return WakatimeAPIResponse(
         status_code=status_code,
-        response = SummaryResponseModel.model_validate_json(resp_json)
+        response=SummaryResponseModel.model_validate_json(resp_json),
     )
 
-__all__ = [
-    "get_summaries"
-]
+
+__all__ = ["get_summaries"]

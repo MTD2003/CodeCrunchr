@@ -21,6 +21,7 @@ logging.basicConfig(  # noqa: E731
     datefmt=r"%F %H:%M:%S",
 )
 
+
 def add_presceduled_jobs(js: JobScheduler) -> None:
     """
     Handles setting up jobs which are pre-scheduled or reoccuring.

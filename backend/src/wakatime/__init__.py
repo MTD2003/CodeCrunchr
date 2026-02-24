@@ -1,5 +1,5 @@
-from typing import Type, TypedDict, Generic, TypeVar, Union
-from datetime import datetime, date, timedelta
+from typing import TypedDict, Generic, TypeVar, Union
+from datetime import datetime, date
 from uuid import UUID
 
 from pydantic import BaseModel
@@ -47,14 +47,16 @@ class WakatimeAPIResponse(Generic[T]):
 
 # Range vs Start/End date helpers
 
+
 class WakatimeTimeframe(BaseModel):
     pass
 
     def get_days_inclusive(self) -> int:
         raise NotImplementedError()
-    
-    def includes_date(self, d : date) -> bool:
+
+    def includes_date(self, d: date) -> bool:
         raise NotImplementedError()
+
 
 class WakatimeRangeTimeframe(WakatimeTimeframe):
     range: str
@@ -74,46 +76,40 @@ class WakatimeStartEndTimeframe(WakatimeTimeframe):
 
     def get_days_inclusive(self) -> int:
         return (self.end_date - self.start_date).days + 1
-    
+
     def includes_date(self, d: date) -> bool:
         return d <= self.end_date and d >= self.start_date
+
 
 class WakatimeISOWeekTimeframe(WakatimeStartEndTimeframe):
     """
     Builds a WakatimeStartEndTimeframe from an isoweek number
     """
-    def __init__(self, iso_week : int, *, year : int | None = None) -> None:
+
+    def __init__(self, iso_week: int, *, year: int | None = None) -> None:
 
         if year is None:
             year = datetime.now().year
 
-        week_start = date.fromisocalendar(
-            week = iso_week,
-            year = year,
-            day = 1
+        week_start = date.fromisocalendar(week=iso_week, year=year, day=1)
+
+        week_end = date.fromisocalendar(week=iso_week, year=year, day=7)
+
+        super().__init__(
+            start=week_start.strftime(r"%Y-%m-%d"),
+            end=week_end.strftime(r"%Y-%m-%d"),
         )
 
-        week_end = date.fromisocalendar(
-            week = iso_week,
-            year = year,
-            day = 7
-        )
-        
-        super().__init__(
-            start = week_start.strftime(r"%Y-%m-%d"),
-            end = week_end.strftime(r"%Y-%m-%d"),
-        )
 
 class WakatimeSingleDayTimeframe(WakatimeStartEndTimeframe):
     """
     Builds a WakatimeStartEndTimeframe from a single date
     """
-    def __init__(self, day : date) -> None:
-        
-        super().__init__(
-            start = day.strftime(r"%Y-%m-%d"),
-            end = day.strftime(r"%Y-%m-%d")
-        )
+
+    def __init__(self, day: date) -> None:
+
+        super().__init__(start=day.strftime(r"%Y-%m-%d"), end=day.strftime(r"%Y-%m-%d"))
+
 
 class InvalidTimeframeValue(Exception):
     pass
@@ -122,7 +118,7 @@ class InvalidTimeframeValue(Exception):
 WakatimeTimeframeType = Union[WakatimeStartEndTimeframe | WakatimeRangeTimeframe]
 
 
-def validate_start_end_timeframe(tf: WakatimeStartEndTimeframe) -> bool:    
+def validate_start_end_timeframe(tf: WakatimeStartEndTimeframe) -> bool:
     try:
         datetime.strptime(tf.start, r"%Y-%m-%d")
         datetime.strptime(tf.end, r"%Y-%m-%d")
@@ -160,7 +156,7 @@ def validate_timeframe(tf: WakatimeTimeframeType) -> bool:
 
     else:
         raise InvalidTimeframeValue()
-    
+
     return True
 
 
