@@ -1,15 +1,18 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 from typing import Literal, Union
 from uuid import UUID
-from sqlalchemy import select
+from sqlalchemy import select, asc
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy.orm.attributes import set_committed_value
+from sqlalchemy.orm import joinedload
 from logging import getLogger
 
-from ..wakatime import WakatimeTokens
+from ..wakatime import WakatimeStartEndTimeframe, WakatimeRangeTimeframe, WakatimeTokens, WakatimeTimeframeType
 from ..wakatime import user as waka_user_funcs
+from ..wakatime import summaries
 from ..utils import tokens as tokens_utils
-from ..db.models import OAuth2Credentials, WakatimeUserProfile
+from ..db.models import OAuth2Credentials, WakatimeUserProfile, WakatimeDuration, WakatimeLanguageDuration
 
 OAUTH_EARLY_EXPIRY_DELTA = timedelta(minutes=5)
 LOGGER = getLogger(__name__)
@@ -159,6 +162,197 @@ async def force_oauth_tokens_to_expire(
 
     # Setting user to datetime.min will ensure that the service sees the tokens as expired
     user.expires_at = datetime.min
+
+async def update_user_durations(
+    session: AsyncSession,
+    tokens : WakatimeTokens,
+    summary: summaries.SummaryResponseModel
+):
+    """
+    Pushes the summary data provided into the database for the provided user
+    """
+
+    # Get the start and end dates for the provided summary
+    start_date = datetime.strptime(summary.start, r"%Y-%m-%dT%H:%M:%SZ").date()
+    end_date = datetime.strptime(summary.end, r"%Y-%m-%dT%H:%M:%SZ").date()
+
+    # Get the number of days between the days
+    date_diff = end_date - start_date
+
+    # Then, generate an array of date objects
+    days = [start_date + (timedelta(days=1) * n) for n in range(date_diff.days)]
+
+    # Then using that array of sorted date objects, and the sorted summary data,
+    # we zip() then, and iterate through them to build out the values for the 
+    # top-most coding time duration model
+    duration_data = [
+        dict(
+            user_id = tokens["user_id"],
+            date = duration_date,
+            total_seconds = duration.grand_total.total_seconds,
+            last_cached_at = datetime.now(tz=None)
+        )
+        for duration_date, duration in zip(days, summary.data)
+    ]
+
+    duration_insert_stmt = insert(WakatimeDuration).values(duration_data)
+
+    # Adding on a conflict statement to make sure that we can call this function even
+    # if we already have data, we can just update it (this is important when the user
+    # queries the data for "today", as it should be updated, not ignored :/)
+    duration_insert_stmt_with_conflict = (
+        duration_insert_stmt
+            .on_conflict_do_update(
+                set_={
+                    "total_seconds": duration_insert_stmt.excluded.total_seconds,
+                    "last_cached_at": duration_insert_stmt.excluded.last_cached_at
+                },
+                constraint="unique_date_user_id"
+            )
+            .returning(WakatimeDuration)
+    )
+
+    # Get the new durations we just made, because we need the ids from them in order to assign the
+    # languages to their associated parent durations
+    new_durations = await session.scalars(duration_insert_stmt_with_conflict)
+    new_durations_sorted_by_date = sorted(new_durations.all(), key=lambda d: d.date, reverse=False)
+
+    language_breakdowns = []
+
+    for summary_section, duration_model in zip(summary.data, new_durations_sorted_by_date):
+        language_breakdowns.extend(
+            [
+                dict(
+                    parent_id = duration_model.id,
+                    language = lang.name,
+                    total_seconds = lang.total_seconds
+                )
+                for lang in summary_section.languages
+            ]
+        )
+
+    language_insert_stmt = insert(WakatimeLanguageDuration).values(language_breakdowns)
+
+    language_insert_stmt_with_conflict = (
+        language_insert_stmt
+            .on_conflict_do_update(
+                set_={
+                    "total_seconds" : language_insert_stmt.excluded.total_seconds,
+                },
+                constraint="pk_parent_id_language"
+            )
+            .returning(WakatimeLanguageDuration)
+    )
+
+    new_language_durations = (await session.scalars(language_insert_stmt_with_conflict)).all()
+
+    # This nonsense takes the newly created and returned `WakatimeLanguageDuration` objects and
+    # groups them based on their parent. 
+    languages_grouped_by_parent = {}
+    for lang_duration in new_language_durations:
+        pid = lang_duration.parent_id
+
+        if pid not in languages_grouped_by_parent:
+            languages_grouped_by_parent[pid] = []
+
+        languages_grouped_by_parent[pid].append(lang_duration)
+
+    # We use the grouped durations to propogate the "languages" relationship in the parent model,
+    # which saves us manually querying the languages again for every single new parent duration
+    # we just created (We literally just made the data, just return it lol)
+    for duration in new_durations_sorted_by_date:
+        set_committed_value(
+            duration,
+            "languages",
+            languages_grouped_by_parent.get(duration.id, [])
+        )
+
+    # Now hopefully, SQLAlchemy's stupid lifetime bs with the sessions or whatever don't completely
+    # mangle the new durations I'm returning, just let me use them PLEASE
+    return new_durations_sorted_by_date
+
+
+DurationRecacheType = tuple[date, date] | None
+
+async def get_cached_user_durations(
+    session : AsyncSession,
+    user_id : UUID,
+    duration_timeframe : WakatimeTimeframeType,
+    *,
+    eager_load : bool = False
+) -> tuple[list[WakatimeDuration], DurationRecacheType]:
+    
+    # First we need to get the proper statement for the `duration_timeframe` type that was provided
+    if isinstance(duration_timeframe, WakatimeStartEndTimeframe):
+        
+        start_date = datetime.strptime(duration_timeframe.start, r"%Y-%m-%d").date()
+        end_date = datetime.strptime(duration_timeframe.end, r"%Y-%m-%d").date()
+
+        stmt = (
+            select(WakatimeDuration)
+                .where(WakatimeDuration.user_id == user_id)
+                .where(WakatimeDuration.date >= start_date)
+                .where(WakatimeDuration.date <= end_date)
+                .order_by(asc(WakatimeDuration.date))
+        )
+
+        # If the eager load kwarg is true then we also load `WakatimeDuration.languages` here
+        if eager_load:
+            stmt = stmt.options(joinedload(WakatimeDuration.languages))
+
+    elif isinstance(duration_timeframe, WakatimeRangeTimeframe):
+        # We probably will never use this function for this :/
+        raise NotImplementedError("Getting cached durations from `WakatimeRangeTimeframe` not supported.")
+
+    else:
+        raise ValueError("Failed to get cached user durations: invalid duration timeframe provided")
+    
+    duration_scalar = await session.scalars(stmt)
+    durations = duration_scalar.unique().all()
+
+    today = date.today()
+    durations_includes_today = start_date <= today and today <= end_date
+
+    # Figure out the maximum number of days which we actually would need 
+    # to store for this range. We omit days which are past today.
+    if end_date > today:
+        max_day_count = (today - start_date).days + 1
+    else:
+        max_day_count = (end_date - start_date).days + 1
+
+    # NOTE: I know, this is gross.
+    # A tuple representing a bool (if a recache is needed), and a tuple
+    # denoting the inclusive range of days (start/end)
+    needs_recache = None
+
+    # We need a recache if either:
+    # * The number of days for which we have durations for does not match the number of
+    #   durations we retrived, OR
+    # * One of the durations we returned includes today
+    if len(durations) < max_day_count or durations_includes_today:
+
+        # We don't need to recache any day which we've already cached
+        # UNLESS it is today, in which case we probably should get the up-to-date data
+        days_not_needing_recaching = {d.date for d in durations if d.date != today}
+
+        # This is probably incredibly inefficient
+        days_needing_recaching = [
+            start_date + timedelta(days=d) 
+            for d in range(max_day_count)
+            if (start_date + timedelta(days=d)) not in days_not_needing_recaching
+        ]
+
+        # Sanity check, we dont need to return a timeframe if there are no
+        # days to recache in the array.
+        if days_needing_recaching:
+
+            # Get the min and max values for the dates which need recaching
+            recache_start_date = min(days_needing_recaching)
+            recache_end_date = max(days_needing_recaching)
+
+            needs_recache = (recache_start_date, recache_end_date)
+
+    return (list(durations), needs_recache)
 
 
 __all__ = ["is_oauth_expired", "update_oauth_tokens", "recache_wakatime_profile"]

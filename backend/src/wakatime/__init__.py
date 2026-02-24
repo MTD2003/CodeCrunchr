@@ -1,5 +1,5 @@
-from typing import Type, TypedDict, Generic, TypeVar
-from datetime import datetime
+from typing import Type, TypedDict, Generic, TypeVar, Union
+from datetime import datetime, date, timedelta
 from uuid import UUID
 
 from pydantic import BaseModel
@@ -56,15 +56,40 @@ class WakatimeStartEndTimeframe(BaseModel):
     start: str
     end: str
 
+class WakatimeISOWeekTimeframe(WakatimeStartEndTimeframe):
+    """
+    Builds a WakatimeStartEndTimeframe from an isoweek number
+    """
+    def __init__(self, iso_week : int, *, year : int | None = None) -> None:
+
+        if year is None:
+            year = datetime.now().year
+
+        week_start = date.fromisocalendar(
+            week = iso_week,
+            year = year,
+            day = 1
+        )
+
+        week_end = date.fromisocalendar(
+            week = iso_week,
+            year = year,
+            day = 7
+        )
+        
+        super().__init__(
+            start = week_start.strftime(r"%Y-%m-%d"),
+            end = week_end.strftime(r"%Y-%m-%d"),
+        )
 
 class InvalidTimeframeValue(Exception):
     pass
 
 
-WakatimeTimeframeType = Type[WakatimeStartEndTimeframe | WakatimeRangeTimeframe]
+WakatimeTimeframeType = Union[WakatimeStartEndTimeframe | WakatimeRangeTimeframe]
 
 
-def validate_start_end_timeframe(tf: WakatimeStartEndTimeframe) -> bool:
+def validate_start_end_timeframe(tf: WakatimeStartEndTimeframe) -> bool:    
     try:
         datetime.strptime(tf.start, r"%Y-%m-%d")
         datetime.strptime(tf.end, r"%Y-%m-%d")
@@ -91,17 +116,19 @@ def validate_range_timeframe(tf: WakatimeRangeTimeframe) -> bool:
     return is_valid
 
 
-def validate_timeframe(tf: WakatimeTimeframeType) -> None:
+def validate_timeframe(tf: WakatimeTimeframeType) -> bool:
     if isinstance(tf, WakatimeRangeTimeframe):
         if not validate_range_timeframe(tf):
             raise InvalidTimeframeValue()
 
-    elif isinstance(tf, WakatimeStartEndTimeframe):
+    elif isinstance(tf, (WakatimeStartEndTimeframe, WakatimeISOWeekTimeframe)):
         if not validate_start_end_timeframe(tf):
             raise InvalidTimeframeValue()
 
     else:
-        raise InvalidTimeframeValue
+        raise InvalidTimeframeValue()
+    
+    return True
 
 
 __all__ = ["WakatimeTokens", "WakatimeAPIResponseIsNone", "WakatimeAPIResponse"]

@@ -10,18 +10,16 @@ from .db import run_migrations, start_database_engine, shutdown_database_engine 
 from .jobs.scheduler import init_job_scheduler, kill_job_scheduler, JobScheduler  # noqa: E402
 from .utils.env import get_required_env  # noqa: E402
 
-from .routers import ping_router, user_router  # noqa: E402
+from .routers import ping_router, user_router, duration_router  # noqa: E402
 
 LOGGER = logging.getLogger(__name__)
-SETUP_LOGGING = lambda: logging.basicConfig(  # noqa: E731
+logging.basicConfig(  # noqa: E731
     level=logging.DEBUG,
     stream=sys.stdout,
     format="[%(asctime)s] %(levelname)-5.5s [%(name)s.%(funcName)s] %(message)s",
     force=True,
     datefmt=r"%F %H:%M:%S",
 )
-SETUP_LOGGING()
-
 
 def add_presceduled_jobs(js: JobScheduler) -> None:
     """
@@ -70,3 +68,4 @@ app = FastAPI(lifespan=lifespan)
 
 app.include_router(ping_router)
 app.include_router(user_router)
+app.include_router(duration_router)
