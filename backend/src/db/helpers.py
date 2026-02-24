@@ -15,8 +15,9 @@ from ..utils import tokens as tokens_utils
 from ..db.models import OAuth2Credentials, WakatimeUserProfile, WakatimeDuration, WakatimeLanguageDuration
 
 OAUTH_EARLY_EXPIRY_DELTA = timedelta(minutes=5)
-LOGGER = getLogger(__name__)
+DEFAULT_DURATION_REFRESH_THRESHOLD = timedelta(minutes=10)
 
+LOGGER = getLogger(__name__)
 
 async def update_oauth_tokens(
     session: AsyncSession,
@@ -279,9 +280,15 @@ async def get_cached_user_durations(
     user_id : UUID,
     duration_timeframe : WakatimeTimeframeType,
     *,
-    eager_load : bool = False
+    eager_load : bool = False,
+    today_refresh_threshold : timedelta | None = DEFAULT_DURATION_REFRESH_THRESHOLD
 ) -> tuple[list[WakatimeDuration], DurationRecacheType]:
     
+    # To keep the parameters easy to manage, providing None to the
+    # `today_refresh_threshold` will set it to a zeroed timedelta.
+    if today_refresh_threshold is None:
+        today_refresh_threshold = timedelta(seconds=0)
+
     # First we need to get the proper statement for the `duration_timeframe` type that was provided
     if isinstance(duration_timeframe, WakatimeStartEndTimeframe):
         
@@ -310,7 +317,8 @@ async def get_cached_user_durations(
     duration_scalar = await session.scalars(stmt)
     durations = duration_scalar.unique().all()
 
-    today = date.today()
+    now = datetime.now(tz=None)
+    today = now.date()
     durations_includes_today = start_date <= today and today <= end_date
 
     # Figure out the maximum number of days which we actually would need 
@@ -332,8 +340,8 @@ async def get_cached_user_durations(
     if len(durations) < max_day_count or durations_includes_today:
 
         # We don't need to recache any day which we've already cached
-        # UNLESS it is today, in which case we probably should get the up-to-date data
-        days_not_needing_recaching = {d.date for d in durations if d.date != today}
+        # UNLESS it is today, in which case we probably should get the up-to-date data.
+        days_not_needing_recaching = {d.date for d in durations if d.date != today or (d.last_cached_at + today_refresh_threshold > now)}
 
         # This is probably incredibly inefficient
         days_needing_recaching = [
