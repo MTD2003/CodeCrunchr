@@ -47,14 +47,36 @@ class WakatimeAPIResponse(Generic[T]):
 
 # Range vs Start/End date helpers
 
+class WakatimeTimeframe(BaseModel):
+    pass
 
-class WakatimeRangeTimeframe(BaseModel):
+    def get_days_inclusive(self) -> int:
+        raise NotImplementedError()
+    
+    def includes_date(self, d : date) -> bool:
+        raise NotImplementedError()
+
+class WakatimeRangeTimeframe(WakatimeTimeframe):
     range: str
 
 
-class WakatimeStartEndTimeframe(BaseModel):
+class WakatimeStartEndTimeframe(WakatimeTimeframe):
     start: str
     end: str
+
+    @property
+    def start_date(self) -> date:
+        return datetime.strptime(self.start, r"%Y-%m-%d").date()
+
+    @property
+    def end_date(self) -> date:
+        return datetime.strptime(self.end, r"%Y-%m-%d").date()
+
+    def get_days_inclusive(self) -> int:
+        return (self.end_date - self.start_date).days + 1
+    
+    def includes_date(self, d: date) -> bool:
+        return d <= self.end_date and d >= self.start_date
 
 class WakatimeISOWeekTimeframe(WakatimeStartEndTimeframe):
     """
@@ -80,6 +102,17 @@ class WakatimeISOWeekTimeframe(WakatimeStartEndTimeframe):
         super().__init__(
             start = week_start.strftime(r"%Y-%m-%d"),
             end = week_end.strftime(r"%Y-%m-%d"),
+        )
+
+class WakatimeSingleDayTimeframe(WakatimeStartEndTimeframe):
+    """
+    Builds a WakatimeStartEndTimeframe from a single date
+    """
+    def __init__(self, day : date) -> None:
+        
+        super().__init__(
+            start = day.strftime(r"%Y-%m-%d"),
+            end = day.strftime(r"%Y-%m-%d")
         )
 
 class InvalidTimeframeValue(Exception):

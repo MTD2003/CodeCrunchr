@@ -362,5 +362,111 @@ async def get_cached_user_durations(
 
     return (list(durations), needs_recache)
 
+# TODO: find a more appropriate name for this function
+# It literally does so many things 
+async def evil_duration_fetching_function(
+    session : AsyncSession,
+    tokens : WakatimeTokens,
+    timeframe : WakatimeStartEndTimeframe,
+    *,
+    today_refresh_threshold : timedelta | None = DEFAULT_DURATION_REFRESH_THRESHOLD
+) -> list[WakatimeDuration]:
+    """
+    This is the evil duration fetching function.
+
+    It tries to fetch all the durations within the timeframe provided from
+    the database. If it can't, it will try to query wakatime and stitch together
+    what exists of the pre-existing duration data with the new duration data in
+    order to fulfill the request of the timeframe provided.
+
+    This function will also attempt to update "today" if it has not been refreshed
+    in the last `today_refresh_threshold` delta.
+    """
+    
+    # We gather what information we currently have in the database
+    # This function also returns the smallest range of what we *don't* have
+    cached_durations, needs_recache = await get_cached_user_durations(
+        session = session,
+        duration_timeframe = timeframe,
+        user_id = tokens["user_id"],
+        eager_load = True
+    )
+
+    # If we don't need a recache, then we have all of the data.
+    # We can just end the function here
+    if needs_recache is None:
+        return cached_durations
+    
+    # Unpack the tuple given to us when needs_recache is non-null.
+    recache_start, recache_end = needs_recache
+
+    # Then, take those values and pipe them into a timeframe object
+    # to pass throughout other functions
+    recache_timeframe = WakatimeStartEndTimeframe(
+        start = recache_start.strftime(r"%Y-%m-%d"), 
+        end = recache_end.strftime(r"%Y-%m-%d")
+    )
+
+    # Now we grab all the durations within the recache timeframe,
+    # this should "complete" the data for the originally requested 
+    # `timeframe`.
+    new_summary_resp = await summaries.get_summaries(
+        tokens = tokens,
+        user = 'current',
+        timeframe = recache_timeframe
+    )
+
+    # In the event that we get a non-OK status code from wakatime, we
+    # should throw an exception and handle that elsewhere.
+    if new_summary_resp.status_code != 200:
+        raise ValueError("Failed to get durations")
+    
+    # Otherwise, we can continue by pushing the new durations into the 
+    # database.
+    # NOTE: We can call ".unwrap()" here because if the status code was 200
+    # then we must have a valid response.
+    new_durations = await update_user_durations(
+        session = session,
+        tokens = tokens,
+        summary = new_summary_resp.unwrap()
+    )
+
+    today = date.today()
+
+    # Now we need to build a complete replacement for `cached_durations`
+    # incorporating the data from `new_durations` (ugh)
+    tmp_cached_durations = []
+
+    # Get the number of days that the original timeframe contains
+    max_days_in_week = timeframe.get_days_inclusive()
+
+    # If the timeframe includes today, that means we likely do not have a
+    # full week's worth of data, so we need to figure out the difference
+    # between the original timeframe's start and today (plus 1 to include today)
+    if timeframe.includes_date(today):
+        max_days_in_week = (today - timeframe.start_date).days + 1
+
+    # This while-loop builds a new `cached_durations` by doing some weird
+    # indexing nonsense and figuring out which date comes "next" while prioritizing
+    # the new durations over the old 
+    # Assume: 
+    # * Xn == Yn == None is impossible
+    # * Yn is always prioritized (most recent data)
+    xn, yn = 0, 0
+    while len(tmp_cached_durations) < max_days_in_week:
+
+        # These should both be sorted.
+        duration_y = new_durations[yn]
+        duration_x = None if xn >= len(cached_durations) else cached_durations[xn]
+
+        if duration_x is not None and duration_x.date < duration_y.date:
+            xn += 1
+            tmp_cached_durations.append(duration_x)
+        else:
+            yn += 1
+            tmp_cached_durations.append(duration_y)
+
+    # We return the newly built tmp_cached_durations
+    return tmp_cached_durations
 
 __all__ = ["is_oauth_expired", "update_oauth_tokens", "recache_wakatime_profile"]
