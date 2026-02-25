@@ -228,6 +228,8 @@ async def update_user_durations(
         new_durations.all(), key=lambda d: d.date, reverse=False
     )
 
+    LOGGER.info(f"Added new durations: {len(new_durations_sorted_by_date)} for user {tokens['user_id']}")
+
     language_breakdowns = []
 
     for summary_section, duration_model in zip(
@@ -256,6 +258,8 @@ async def update_user_durations(
     new_language_durations = (
         await session.scalars(language_insert_stmt_with_conflict)
     ).all()
+
+    LOGGER.info(f"Added new language breakdowns: {len(new_language_durations)} for user {tokens['user_id']}")
 
     # This nonsense takes the newly created and returned `WakatimeLanguageDuration` objects and
     # groups them based on their parent.
@@ -365,6 +369,8 @@ async def get_cached_user_durations(
             if (start_date + timedelta(days=d)) not in days_not_needing_recaching
         ]
 
+        LOGGER.debug(f"Days needing recaching: {len(days_needing_recaching)} vs not: {len(days_not_needing_recaching)}")
+
         # Sanity check, we dont need to return a timeframe if there are no
         # days to recache in the array.
         if days_needing_recaching:
@@ -412,6 +418,8 @@ async def evil_duration_fetching_function(
     if needs_recache is None:
         return cached_durations
 
+    LOGGER.debug(f"User {tokens['user_id']} needs recache of durations between {timeframe.start}-{timeframe.end}...")
+
     # Unpack the tuple given to us when needs_recache is non-null.
     recache_start, recache_end = needs_recache
 
@@ -440,6 +448,8 @@ async def evil_duration_fetching_function(
     new_durations = await update_user_durations(
         session=session, tokens=tokens, summary=new_summary_resp.unwrap()
     )
+
+    LOGGER.debug(f"Successfully recached {len(new_durations)} for user {tokens['user_id']}!")
 
     today = date.today()
 
