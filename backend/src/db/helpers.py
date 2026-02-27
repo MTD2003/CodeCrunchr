@@ -1,11 +1,12 @@
 from datetime import datetime, timedelta, date
-from typing import Literal, Union
+from typing import AsyncGenerator, Literal, Union
 from uuid import UUID
-from sqlalchemy import select, asc
+from sqlalchemy import and_, or_, select, asc
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm.attributes import set_committed_value
 from sqlalchemy.orm import joinedload
+from sqlalchemy import func as db_funcs
 from logging import getLogger
 
 from ..wakatime import (
@@ -498,5 +499,128 @@ async def evil_duration_fetching_function(
     # We return the newly built tmp_cached_durations
     return tmp_cached_durations
 
+
+async def get_user_ids_with_incomplete_durations(
+    session : AsyncSession,
+    timeframe : WakatimeStartEndTimeframe,
+    *,
+    incomplete_today_check : bool = False,
+    today_refresh_threshold: timedelta | None = DEFAULT_DURATION_REFRESH_THRESHOLD,
+) -> list[UUID]:
+    """
+    Returns a list of all the user uuids which do not have complete
+    duration data for the given start/end timeframe
+    """
+
+    where_clause = WakatimeDuration.date.between(timeframe.start_date, timeframe.end_date)
+
+    # If we need to check if "today" is incomplete, we must first check that we actually need to... 
+    # (tf includes today?)
+    if incomplete_today_check and timeframe.includes_date(date.today()):
+
+        # If it includes today, then we must only need to cache up to today,
+        # so we modify the timeframe to reflect that
+        timeframe = WakatimeStartEndTimeframe(
+            start = timeframe.start_date.strftime(r"%Y-%m-%d"),
+            end = date.today().strftime(r"%Y-%m-%d")
+        )
+
+        # We then modify the where_clause to include durations which:
+        # 1. Are between the start and end dates (inclusive)
+        # 2. Either isn't today or if it was today, was cached within 
+        #    the threshold provided in args
+        where_clause = and_(
+            WakatimeDuration.date.between(timeframe.start_date, timeframe.end_date),
+            or_(
+                WakatimeDuration.date != timeframe.end_date,
+                WakatimeDuration.last_cached_at + today_refresh_threshold > datetime.now(),
+            )
+        )
+
+    # Get the number of days included within the timeframe
+    timeframe_day_span = timeframe.get_days_inclusive()
+
+    # The breakdown of this query goes as follows:
+    # 1. Fetch the user ids ...
+    # 2. Where the date is between the start and end timeframe dates ...
+    # 3. Grouped by user ids (so we can perform an aggregate function) ...
+    # 4. Where a user_id is associated with less than the required number 
+    #    of days within the provided timeframe. (count() is the agg. func.)
+    stmt = (
+        select(WakatimeDuration.user_id)
+            .where(where_clause)
+            .group_by(WakatimeDuration.user_id)
+            .having(db_funcs.count() < timeframe_day_span)
+    )
+
+    # Fetch those user ids ...
+    user_ids = await session.scalars(stmt)
+
+    # Return them.
+    return list(user_ids.all())
+
+
+async def wakatime_token_lookup_generator(
+    session : AsyncSession,
+    user_ids : list[UUID],
+    *,
+    skip_missing_credentials : bool = False,
+    expired_oauth_behaviour : Literal["skip", "error", "refresh"] = "error"
+) -> AsyncGenerator[WakatimeTokens, None]:
+    """
+    A generator which yields wakatime tokens retrieved from the database
+    for the provided user UUIDs.
+    """
+    # This is probably such a stupidly excessive way to do this.
+
+    for uuid in user_ids:
+        creds = await session.get(OAuth2Credentials, (uuid, "wakatime"))
+
+        # If we don't get any credentials back from the database
+        if creds is None:
+
+            # Throw an error if we aren't just skipping these problems.
+            if not skip_missing_credentials:
+                raise ValueError(
+                    f"User id {uuid} does not have wakatime credentials in the database."
+                )
+            
+            # If we *are* just skipping these problems, then we can just go to
+            # the next iteration
+            continue
+
+        # Next, check that the tokens are actually valid (by expiry time)
+        if is_oauth_expired(creds):
+
+            # If they are expired, then we either throw an error, skip this user, or 
+            # trigger a refresh for the user's tokens.
+            if expired_oauth_behaviour == "error":
+                raise ValueError(
+                    f"User id {uuid} has expired credentials, and we're not refreshing them!"
+                )
+            
+            # TODO: Refresh them
+            elif expired_oauth_behaviour == "refresh":
+                raise NotImplementedError()
+            
+            # Skip behaviour
+            else:
+                continue
+
+        # At the point, the access token MUST be valid, so we can decrypt them
+        # and yield them through the generator
+        decrypted_access_token = tokens_utils.decrypt(creds.access_token)
+        decrypted_refresh_token = tokens_utils.decrypt(creds.refresh_token)
+
+        # FIXME: In most places, we do not need the refresh token, so refactoring
+        # some of the codebase to only require it where necessary may be an ideal
+        # task for future polish.
+        # We're returning this whole object here because *most* functions in this
+        # codebase use the object.
+        yield WakatimeTokens(
+            user_id = uuid,
+            access_token = decrypted_access_token,
+            refresh_token = decrypted_refresh_token
+        )
 
 __all__ = ["is_oauth_expired", "update_oauth_tokens", "recache_wakatime_profile"]

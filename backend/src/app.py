@@ -8,9 +8,10 @@ load_dotenv()
 
 from .db import run_migrations, start_database_engine, shutdown_database_engine  # noqa: E402
 from .jobs.scheduler import init_job_scheduler, kill_job_scheduler, JobScheduler  # noqa: E402
+from .jobs.leaderboards import leaderboard_job # noqa: E402
 from .utils.env import get_required_env  # noqa: E402
 
-from .routers import ping_router, user_router, duration_router  # noqa: E402
+from .routers import ping_router, user_router, duration_router, leaderboard_router  # noqa: E402
 
 LOGGER = logging.getLogger(__name__)
 logging.basicConfig(  # noqa: E731
@@ -26,7 +27,14 @@ def add_presceduled_jobs(js: JobScheduler) -> None:
     """
     Handles setting up jobs which are pre-scheduled or reoccuring.
     """
-    pass
+
+    # Rebuilds the leaderboard
+    js.add_job(
+        leaderboard_job,
+        trigger = "cron",
+        hour = "*/1",
+        minute = "0"
+    )
 
 
 @asynccontextmanager
@@ -70,3 +78,4 @@ app = FastAPI(lifespan=lifespan)
 app.include_router(ping_router)
 app.include_router(user_router)
 app.include_router(duration_router)
+app.include_router(leaderboard_router)

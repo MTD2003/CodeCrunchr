@@ -1,4 +1,4 @@
-from sqlalchemy import ForeignKey, PrimaryKeyConstraint, DateTime, UniqueConstraint
+from sqlalchemy import ForeignKey, Index, PrimaryKeyConstraint, DateTime, UniqueConstraint
 from sqlalchemy.dialects import postgresql
 from uuid import UUID
 from sqlalchemy import func as db_funcs
@@ -199,6 +199,21 @@ class WakatimeLanguageDuration(CodeCrunchrBase):
         PrimaryKeyConstraint("parent_id", "language", name="pk_parent_id_language"),
     )
 
+class WeeklyLeaderboard(CodeCrunchrBase):
+    """
+    Responsible for holding a snapshot of the coding time 
+    leaderboard for the week.
+    """
+    __tablename__ = "codecrunchr_weekly_leaderboard"
+
+    week_start : Mapped[date] = mapped_column(primary_key=True)
+    user_id : Mapped[UUID] = mapped_column(primary_key=True)
+    total : Mapped[float] = mapped_column(nullable=False)
+    rank : Mapped[int] = mapped_column(nullable=False)
+
+    __table_args__ = (
+        Index("idx_week_start_rank", "week_start", "rank"),
+    )
 
 __all__ = [
     "CodeCrunchrBase",
