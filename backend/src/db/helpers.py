@@ -209,6 +209,13 @@ async def update_user_durations(
         for duration_date, duration in zip(days, summary.data)
     ]
 
+    # If we didn't actually get any duration_data for the user (for instance, if they didnt
+    # program that day) then we shouldnt try to add duration data.
+    # This fixes that weird (null, null, null) pkey violation error 
+    if len(duration_data) == 0:
+        LOGGER.info(f"No duration data to add for user {tokens['user_id']}")
+        return []
+
     duration_insert_stmt = insert(WakatimeDuration).values(duration_data)
 
     # Adding on a conflict statement to make sure that we can call this function even
@@ -248,6 +255,14 @@ async def update_user_durations(
                 for lang in summary_section.languages
             ]
         )
+
+    # Likewise, if there's no language breakdowns for the user, don't try and insert
+    # null data.
+    if len(language_breakdowns) == 0:
+        LOGGER.info(
+            f"No language breakdowns to add for user {tokens['user_id']}"
+        )
+        return new_durations_sorted_by_date
 
     language_insert_stmt = insert(WakatimeLanguageDuration).values(language_breakdowns)
 
