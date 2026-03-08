@@ -20,13 +20,20 @@ async def get_leaderboard(
     
     today = date.today()
 
+    current_week_start = date.fromisocalendar(
+        year = today.year,
+        week = today.isocalendar().week,
+        day = 1
+    )
+
     async with get_session() as session:
 
         stmt = (
             select(WeeklyLeaderboard, WakatimeUserProfile)
-                .where(WeeklyLeaderboard.week_start <= today)
+                .where(WeeklyLeaderboard.week_start == current_week_start)
                 .order_by(WeeklyLeaderboard.rank)
                 .limit(100)
+                .join(WakatimeUserProfile, WakatimeUserProfile.user_id == WeeklyLeaderboard.user_id, isouter=True)
         )
 
         res = await session.execute(stmt)
@@ -72,13 +79,19 @@ async def get_leaderboard_placement_for_user(
     # We only care of the user's placement today
     today = date.today()
 
+    current_week_start = date.fromisocalendar(
+        year = today.year,
+        week = today.isocalendar().week,
+        day = 1
+    )
+
     async with get_session() as session:
 
         # Select the user's current leaderboard placement for this week,
         # as well as their profile
         stmt = (
             select(WeeklyLeaderboard, WakatimeUserProfile)
-                .where(WeeklyLeaderboard.week_start <= today)
+                .where(WeeklyLeaderboard.week_start == current_week_start)
                 .where(WeeklyLeaderboard.user_id == user_id)
                 .join(WakatimeUserProfile, WakatimeUserProfile.user_id == user_id, isouter=True)
         )
