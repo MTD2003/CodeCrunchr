@@ -27,11 +27,11 @@ class UserResponse(BaseModel):
     is_email_confirmed: bool
     public_email: str | None
     timezone: str
-    last_heartbeat_at: str
-    last_plugin: str
-    last_plugin_name: str
-    last_project: str
-    last_branch: str
+    last_heartbeat_at: str | None
+    last_plugin: str | None
+    last_plugin_name: str | None
+    last_project: str | None
+    last_branch: str | None
     plan: str
     username: str
     website: str
