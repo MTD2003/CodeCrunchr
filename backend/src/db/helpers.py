@@ -181,7 +181,7 @@ async def update_user_durations(
     session: AsyncSession,
     tokens: WakatimeTokens,
     summary: summaries.SummaryResponseModel,
-):
+) -> list[WakatimeDuration]:
     """
     Pushes the summary data provided into the database for the provided user
     """

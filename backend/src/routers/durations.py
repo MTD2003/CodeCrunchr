@@ -2,7 +2,7 @@ from typing import Annotated
 
 from fastapi.routing import APIRouter
 from fastapi import HTTPException, Path
-from datetime import date
+from datetime import date, datetime
 
 from ..db import get_session as get_db_session
 from ..db.helpers import evil_duration_fetching_function
@@ -51,6 +51,14 @@ async def get_durations_for_week(
             raise HTTPException(
                 status_code=500, detail="Failed to fetch new durations from wakatime."
             )
+        
+        # If we retrieved less than one result from the duration fetching function, then
+        # we must have no coding data for the week yet, so return an empty bulk duration model
+        # NOTE: We need to return this otherwise SQLAlchemy gets mad because `duration.languages`
+        #       tries to get eagerly loaded and fails, because the duration fetching function
+        #       does evil tomfoolery to spoof that value using cached data when necessary.
+        if len(user_durations) < 1:
+            return BulkDurationResponseModel(durations = [])
 
         # Construct a new list to hold all the durations responses
         # (one for each day of the week)
@@ -117,10 +125,14 @@ async def get_durations_for_day(
                 status_code=500, detail="Failed to fetch new durations from wakatime."
             )
 
+        # If we got an empty list from the evil_duration_fetching function, that means
+        # that there was no coding done during that day.
         if len(durations_list) != 1:
-            raise HTTPException(
-                status_code=500,
-                detail="Retrieved non-singular or null result from evil duration fetching function",
+            return DurationResponseModel(
+                date = date_object,
+                total_seconds = 0,
+                languages = [],
+                last_cached_at = datetime.now(tz=None)
             )
 
         # Since we know the length has to be one, then we know
