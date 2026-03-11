@@ -25,8 +25,8 @@ class User(CodeCrunchrBase):
     )
 
     # Relationships with other models
-    preference_overrides = relationship(
-        "UserPreferenceOverride", back_populates="user", cascade="all, delete-orphan"
+    preferences = relationship(
+        "UserPreferences", back_populates="user", cascade="all, delete-orphan"
     )
     credentials = relationship(
         "OAuth2Credentials", back_populates="user", cascade="all, delete-orphan"
@@ -38,40 +38,27 @@ class User(CodeCrunchrBase):
         "WakatimeDuration", back_populates="user", cascade="all, delete-orphan"
     )
 
-
-class UserPreferenceOverride(CodeCrunchrBase):
+class UserPreferences(CodeCrunchrBase):
     """
-    Responsible for holding the overrides (the differences) on the default
-    preference config for each individual user.
-
-    1 record = 1 preference value change
+    Contains JSON data for a user's preferences 
     """
 
-    __tablename__ = "codecrunchr_preferences"
+    __tablename__ = "codecrunchr_user_preferences"
 
-    user_id: Mapped[UUID] = mapped_column(
-        ForeignKey("codecrunchr_users.id", ondelete="CASCADE")
+    user_id : Mapped[UUID] = mapped_column(
+        ForeignKey("codecrunchr_users.id", ondelete="CASCADE"), 
+        primary_key=True
     )
 
-    # Preference identifier
-    slug: Mapped[str]
-
-    # Overriden value
-    value: Mapped[str]
-
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime, server_default=db_funcs.now()
+    last_updated : Mapped[datetime] = mapped_column(
+        DateTime, server_default = db_funcs.now()
     )
 
-    # Relationships
-    user = relationship("User", back_populates="preference_overrides")
+    preferences : Mapped[dict] = mapped_column(postgresql.JSONB, server_default="'{}'")
 
-    # A user should only ever have one slug in their pocket...
-    # (Actually meant to prevent users from having duplicate preference overrides)
-    __table_args__ = (
-        PrimaryKeyConstraint("user_id", "slug", name="pk_preference_slug_per_user"),
+    user = relationship(
+        "User", back_populates="preferences"
     )
-
 
 class OAuth2Credentials(CodeCrunchrBase):
     """
@@ -218,7 +205,7 @@ class WeeklyLeaderboard(CodeCrunchrBase):
 __all__ = [
     "CodeCrunchrBase",
     "User",
-    "UserPreferenceOverride",
+    "UserPreferences",
     "OAuth2Credentials",
     "WakatimeUserProfile",
 ]

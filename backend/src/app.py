@@ -11,7 +11,7 @@ from .jobs.scheduler import init_job_scheduler, kill_job_scheduler, JobScheduler
 from .jobs.leaderboards import leaderboard_job # noqa: E402
 from .utils.env import get_required_env  # noqa: E402
 
-from .routers import ping_router, user_router, duration_router, leaderboard_router  # noqa: E402
+from .routers import ping_router, user_router, duration_router, leaderboard_router, preferences_router  # noqa: E402
 
 LOGGER = logging.getLogger(__name__)
 logging.basicConfig(  # noqa: E731
@@ -79,3 +79,4 @@ app.include_router(ping_router)
 app.include_router(user_router)
 app.include_router(duration_router)
 app.include_router(leaderboard_router)
+app.include_router(preferences_router)
