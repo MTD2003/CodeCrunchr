@@ -51,14 +51,14 @@ async def get_durations_for_week(
             raise HTTPException(
                 status_code=500, detail="Failed to fetch new durations from wakatime."
             )
-        
+
         # If we retrieved less than one result from the duration fetching function, then
         # we must have no coding data for the week yet, so return an empty bulk duration model
         # NOTE: We need to return this otherwise SQLAlchemy gets mad because `duration.languages`
         #       tries to get eagerly loaded and fails, because the duration fetching function
         #       does evil tomfoolery to spoof that value using cached data when necessary.
         if len(user_durations) < 1:
-            return BulkDurationResponseModel(durations = [])
+            return BulkDurationResponseModel(durations=[])
 
         # Construct a new list to hold all the durations responses
         # (one for each day of the week)
@@ -129,10 +129,10 @@ async def get_durations_for_day(
         # that there was no coding done during that day.
         if len(durations_list) != 1:
             return DurationResponseModel(
-                date = date_object,
-                total_seconds = 0,
-                languages = [],
-                last_cached_at = datetime.now(tz=None)
+                date=date_object,
+                total_seconds=0,
+                languages=[],
+                last_cached_at=datetime.now(tz=None),
             )
 
         # Since we know the length has to be one, then we know

@@ -4,4 +4,10 @@ from .durations import router as duration_router
 from .leaderboards import router as leaderboard_router
 from .preferences import router as preferences_router
 
-__all__ = ["ping_router", "user_router", "duration_router", "leaderboard_router", "preferences_router"]
+__all__ = [
+    "ping_router",
+    "user_router",
+    "duration_router",
+    "leaderboard_router",
+    "preferences_router",
+]

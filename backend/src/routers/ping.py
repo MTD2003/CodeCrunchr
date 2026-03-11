@@ -1,9 +1,8 @@
 from fastapi.responses import JSONResponse
 from fastapi.routing import APIRouter
 
-router = APIRouter(
-    tags=["debug"]
-)
+router = APIRouter(tags=["debug"])
+
 
 @router.get("/ping")
 async def ping_ping() -> JSONResponse:
@@ -15,5 +14,6 @@ async def ping_ping() -> JSONResponse:
     """
 
     return JSONResponse({"api_ok": True})
+
 
 __all__ = ["router"]

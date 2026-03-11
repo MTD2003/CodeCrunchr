@@ -1,4 +1,10 @@
-from sqlalchemy import ForeignKey, Index, PrimaryKeyConstraint, DateTime, UniqueConstraint
+from sqlalchemy import (
+    ForeignKey,
+    Index,
+    PrimaryKeyConstraint,
+    DateTime,
+    UniqueConstraint,
+)
 from sqlalchemy.dialects import postgresql
 from uuid import UUID
 from sqlalchemy import func as db_funcs
@@ -38,27 +44,26 @@ class User(CodeCrunchrBase):
         "WakatimeDuration", back_populates="user", cascade="all, delete-orphan"
     )
 
+
 class UserPreferences(CodeCrunchrBase):
     """
-    Contains JSON data for a user's preferences 
+    Contains JSON data for a user's preferences
     """
 
     __tablename__ = "codecrunchr_user_preferences"
 
-    user_id : Mapped[UUID] = mapped_column(
-        ForeignKey("codecrunchr_users.id", ondelete="CASCADE"), 
-        primary_key=True
+    user_id: Mapped[UUID] = mapped_column(
+        ForeignKey("codecrunchr_users.id", ondelete="CASCADE"), primary_key=True
     )
 
-    last_updated : Mapped[datetime] = mapped_column(
-        DateTime, server_default = db_funcs.now()
+    last_updated: Mapped[datetime] = mapped_column(
+        DateTime, server_default=db_funcs.now()
     )
 
-    preferences : Mapped[dict] = mapped_column(postgresql.JSONB, server_default="'{}'")
+    preferences: Mapped[dict] = mapped_column(postgresql.JSONB, server_default="'{}'")
 
-    user = relationship(
-        "User", back_populates="preferences"
-    )
+    user = relationship("User", back_populates="preferences")
+
 
 class OAuth2Credentials(CodeCrunchrBase):
     """
@@ -186,21 +191,22 @@ class WakatimeLanguageDuration(CodeCrunchrBase):
         PrimaryKeyConstraint("parent_id", "language", name="pk_parent_id_language"),
     )
 
+
 class WeeklyLeaderboard(CodeCrunchrBase):
     """
-    Responsible for holding a snapshot of the coding time 
+    Responsible for holding a snapshot of the coding time
     leaderboard for the week.
     """
+
     __tablename__ = "codecrunchr_weekly_leaderboard"
 
-    week_start : Mapped[date] = mapped_column(primary_key=True)
-    user_id : Mapped[UUID] = mapped_column(primary_key=True)
-    total : Mapped[float] = mapped_column(nullable=False)
-    rank : Mapped[int] = mapped_column(nullable=False)
+    week_start: Mapped[date] = mapped_column(primary_key=True)
+    user_id: Mapped[UUID] = mapped_column(primary_key=True)
+    total: Mapped[float] = mapped_column(nullable=False)
+    rank: Mapped[int] = mapped_column(nullable=False)
 
-    __table_args__ = (
-        Index("idx_week_start_rank", "week_start", "rank"),
-    )
+    __table_args__ = (Index("idx_week_start_rank", "week_start", "rank"),)
+
 
 __all__ = [
     "CodeCrunchrBase",

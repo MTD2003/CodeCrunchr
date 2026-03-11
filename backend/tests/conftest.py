@@ -17,9 +17,7 @@ def test_client() -> TestClient:
 
 @pytest_asyncio.fixture(scope="session", loop_scope="session")
 async def initialized_test_db() -> AsyncGenerator[None, None]:
-    start_database_engine(
-        db_url = get_required_env("TEST_DATABASE_URL")
-    )
+    start_database_engine(db_url=get_required_env("TEST_DATABASE_URL"))
 
     await run_migrations()
 

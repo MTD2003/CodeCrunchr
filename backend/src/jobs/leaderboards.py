@@ -1,6 +1,10 @@
 from ..db import get_session
 from ..db.models import WeeklyLeaderboard, WakatimeDuration
-from ..db.helpers import wakatime_token_lookup_generator, get_user_ids_with_incomplete_durations, evil_duration_fetching_function
+from ..db.helpers import (
+    wakatime_token_lookup_generator,
+    get_user_ids_with_incomplete_durations,
+    evil_duration_fetching_function,
+)
 from ..wakatime import WakatimeStartEndTimeframe
 
 from sqlalchemy import delete, insert, literal, select, func as db_funcs
@@ -10,6 +14,7 @@ import asyncio
 
 MAX_CONCURRENT_LEADERBOARD_JOBS = 4
 LOGGER = getLogger(__name__)
+
 
 async def leaderboard_job() -> None:
     """
@@ -24,20 +29,18 @@ async def leaderboard_job() -> None:
     start_of_week = date.fromisocalendar(today.year, today.isocalendar().week, 1)
 
     timeframe = WakatimeStartEndTimeframe(
-        start = start_of_week.strftime(r"%Y-%m-%d"),
-        end = today.strftime(r"%Y-%m-%d")
+        start=start_of_week.strftime(r"%Y-%m-%d"), end=today.strftime(r"%Y-%m-%d")
     )
 
     async with get_session() as session:
-
         # This will gather all the users that we need to recache
         # NOTE: incomplete_today_check will check any record for today against
         # the refresh threshold to see if it is out of date.
         users_to_recache = await get_user_ids_with_incomplete_durations(
-            session = session,
-            timeframe = timeframe,
-            incomplete_today_check = True,
-            today_refresh_threshold = timedelta(hours=1)
+            session=session,
+            timeframe=timeframe,
+            incomplete_today_check=True,
+            today_refresh_threshold=timedelta(hours=1),
         )
 
         # We need to keep track of two things for the next part:
@@ -54,27 +57,24 @@ async def leaderboard_job() -> None:
         # will provide us with fresh tokens.
         # TODO: The refreshing bit doesn't work, but it doesn't really matter, as the waka tokens dont expire for a year
         async for tokens in wakatime_token_lookup_generator(
-            session = session,
-            user_ids = users_to_recache,
-            expired_oauth_behaviour = "skip",
-            skip_missing_credentials = True
+            session=session,
+            user_ids=users_to_recache,
+            expired_oauth_behaviour="skip",
+            skip_missing_credentials=True,
         ):
-            
             # We wrap the evil_duration_fetching_function with a context manager for the
             # semaphore, which will release() when the inner coroutine is completed
             async def evil_wrapped_with_semaphore():
                 async with semaphore:
                     await evil_duration_fetching_function(
-                        session = session,
-                        tokens = tokens,
-                        timeframe = timeframe
+                        session=session, tokens=tokens, timeframe=timeframe
                     )
 
             # We create a task and tell asyncio to start it right away. It returns a handle that
             # we keep track of in an array. This way we're not waiting on any specific job, but ALL
             # incomplete jobs
             fetching_task = asyncio.create_task(evil_wrapped_with_semaphore())
-                    
+
             fetch_tasks.append(fetching_task)
 
         # Waiting for all of the incomplete coroutines to finish
@@ -102,7 +102,7 @@ async def leaderboard_job() -> None:
                 literal(start_of_week).label("week_start"),
                 WakatimeDuration.user_id.label("user_id"),
                 total_seconds_sum.label("total"),
-                db_funcs.rank().over(order_by=total_seconds_sum).label("rank")
+                db_funcs.rank().over(order_by=total_seconds_sum).label("rank"),
             )
             .where(WakatimeDuration.date.between(start_of_week, today))
             .group_by(WakatimeDuration.user_id)
@@ -113,9 +113,9 @@ async def leaderboard_job() -> None:
                 WeeklyLeaderboard.week_start,
                 WeeklyLeaderboard.user_id,
                 WeeklyLeaderboard.total,
-                WeeklyLeaderboard.rank
+                WeeklyLeaderboard.rank,
             ],
-            crazy_aggregation_stmt
+            crazy_aggregation_stmt,
         )
 
         await session.execute(stmt)

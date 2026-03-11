@@ -11,8 +11,9 @@ from src.db import get_session
 
 router = APIRouter(tags=["preferences"])
 
+
 @router.get("/preferences")
-async def get_user_preferences(user_id : UserIDDependencyType) -> JSONResponse:
+async def get_user_preferences(user_id: UserIDDependencyType) -> JSONResponse:
     """
     Returns the entire preference payload that was previously pushed to the database.
 
@@ -26,13 +27,16 @@ async def get_user_preferences(user_id : UserIDDependencyType) -> JSONResponse:
 
         if resp is None:
             return JSONResponse(content={})
-        
+
         return JSONResponse(resp.preferences)
+
 
 @router.post("/preferences")
 async def update_user_preferences(
-    user_id : UserIDDependencyType,
-    payload : dict = Body(default={}, examples=[{"some_preference" : True, "other_preference" : 69}])
+    user_id: UserIDDependencyType,
+    payload: dict = Body(
+        default={}, examples=[{"some_preference": True, "other_preference": 69}]
+    ),
 ) -> Response:
     """
     Updates the authenticated user's preferences with the provided JSON payload. This will
@@ -40,21 +44,21 @@ async def update_user_preferences(
 
     Payloads must be json serializable objects.
     """
-    
+
     stmt = insert(UserPreferences).values(
         {
             "user_id": user_id,
             "last_updated": datetime.now(tz=None),
-            "preferences" : payload
+            "preferences": payload,
         }
     )
 
     stmt_with_conflict_clause = stmt.on_conflict_do_update(
         index_elements=["user_id"],
         set_={
-            "last_updated" : stmt.excluded.last_updated,
-            "preferences" : stmt.excluded.preferences
-        }
+            "last_updated": stmt.excluded.last_updated,
+            "preferences": stmt.excluded.preferences,
+        },
     )
 
     async with get_session() as session:
@@ -62,24 +66,19 @@ async def update_user_preferences(
         await session.commit()
 
     # De bluetooth device has connected successfullay
-    return Response(
-        status_code=200,
-        content="User preferences updated successfully!"
-    )
+    return Response(status_code=200, content="User preferences updated successfully!")
+
 
 @router.delete("/preferences")
-async def reset_user_preferences(user_id : UserIDDependencyType) -> Response:
+async def reset_user_preferences(user_id: UserIDDependencyType) -> Response:
     """
     Resets a user's preferences payload (by deleting it entirely).
     """
-    
+
     stmt = delete(UserPreferences).where(UserPreferences.user_id == user_id)
 
     async with get_session() as session:
         await session.execute(stmt)
         await session.commit()
 
-    return Response(
-        status_code=200,
-        content="Your user preferences have been cleared!"
-    )
+    return Response(status_code=200, content="Your user preferences have been cleared!")
