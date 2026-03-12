@@ -17,7 +17,7 @@ from .routers import (  # noqa: E402
     duration_router,
     leaderboard_router,
     preferences_router,
-    goals_router
+    goals_router,
 )
 
 LOGGER = logging.getLogger(__name__)
