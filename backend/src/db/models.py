@@ -10,6 +10,7 @@ from uuid import UUID
 from sqlalchemy import func as db_funcs
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
+from enum import Enum
 from datetime import datetime, date
 
 
@@ -42,6 +43,9 @@ class User(CodeCrunchrBase):
     )
     wakatime_durations = relationship(
         "WakatimeDuration", back_populates="user", cascade="all, delete-orphan"
+    )
+    goals = relationship(
+        "Goals", back_populates="user", cascade="all, delete-orphan"
     )
 
 
@@ -148,7 +152,8 @@ class WakatimeDuration(CodeCrunchrBase):
     id: Mapped[int] = mapped_column(primary_key=True)
 
     user_id: Mapped[UUID] = mapped_column(
-        ForeignKey("codecrunchr_users.id", ondelete="CASCADE")
+        ForeignKey("codecrunchr_users.id", ondelete="CASCADE"),
+        index = True
     )
     user = relationship("User", back_populates="wakatime_durations")
 
@@ -183,7 +188,7 @@ class WakatimeLanguageDuration(CodeCrunchrBase):
     )
     parent = relationship("WakatimeDuration", back_populates="languages")
 
-    language: Mapped[str]
+    language: Mapped[str] = mapped_column(index=True)
 
     total_seconds: Mapped[float]
 
@@ -207,6 +212,36 @@ class WeeklyLeaderboard(CodeCrunchrBase):
 
     __table_args__ = (Index("idx_week_start_rank", "week_start", "rank"),)
 
+class GoalEnum(Enum):
+    DAILY = "daily"
+    WEEKLY = "weekly"
+
+class Goals(CodeCrunchrBase):
+    """
+    Responsible for holding the user's defined goals
+
+    This table specifically handles goals for all languages
+    """
+    __tablename__ = "codecrunchr_goals"
+
+    # Unique id for the goal
+    id : Mapped[int] = mapped_column(primary_key=True)
+
+    # Who owns the goal
+    # NOTE: this is indexed for faster lookups :)
+    user_id : Mapped[UUID] = mapped_column(
+        ForeignKey("codecrunchr_users.id", ondelete="CASCADE"), 
+        nullable=False,
+        index = True
+    )
+
+    user = relationship("User", back_populates="goals")
+
+    # The timeframe for the goal (e.g., program 10 hrs per week or 30mins per day)
+    timeframe : Mapped[GoalEnum] = mapped_column(default=GoalEnum.WEEKLY)
+
+    # The number of minutes needed to achieve the goal
+    minutes : Mapped[int] = mapped_column(nullable=False)
 
 __all__ = [
     "CodeCrunchrBase",
